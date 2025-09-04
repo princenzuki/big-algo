@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  trading-bot:
+    build: .
+    container_name: lorentzian-trading-bot
+    restart: unless-stopped
+    environment:
+      - TRADING_TIMEZONE=Africa/Nairobi
+      - LOOP_INTERVAL_MINUTES=5
+      - COOLDOWN_MINUTES=10
+      - MAX_ACCOUNT_RISK_PERCENT=10.0
+      - MIN_LOT_SIZE=0.01
+      - MAX_CONCURRENT_TRADES=5
+      - MAX_SPREAD_PIPS=3.0
+      - MIN_STOP_DISTANCE_PIPS=5.0
+      - NEIGHBORS_COUNT=8
+      - MAX_BARS_BACK=2000
+      - FEATURE_COUNT=5
+      - BROKER_LOGIN=${BROKER_LOGIN}
+      - BROKER_PASSWORD=${BROKER_PASSWORD}
+      - BROKER_SERVER=${BROKER_SERVER}
+      - DATABASE_PATH=/app/data/trading_portfolio.db
+      - LOG_LEVEL=INFO
+      - LOG_FILE=/app/logs/trading_bot.log
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+    networks:
+      - trading-network
+    depends_on:
+      - api-server
+
+  api-server:
+    build: .
+    container_name: lorentzian-api-server
+    restart: unless-stopped
+    command: uvicorn app_api.main:app --host 0.0.0.0 --port 8000
+    environment:
+      - DATABASE_PATH=/app/data/trading_portfolio.db
+      - LOG_LEVEL=INFO
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./exports:/app/exports
+    networks:
+      - trading-network
+
+  web-dashboard:
+    build: ./web_dashboard
+    container_name: lorentzian-web-dashboard
+    restart: unless-stopped
+    environment:
+      - REACT_APP_API_URL=http://api-server:8000/api
+    ports:
+      - "3000:3000"
+    networks:
+      - trading-network
+    depends_on:
+      - api-server
+
+networks:
+  trading-network:
+    driver: bridge
+
+volumes:
+  trading-data:
+  trading-logs:

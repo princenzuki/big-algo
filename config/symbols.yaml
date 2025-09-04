@@ -1,0 +1,96 @@
+AUDUSD:
+  allow_weekend: false
+  atr_period: 14
+  enabled: true
+  max_spread_pips: 3.0
+  min_confidence: 0.3
+  sessions:
+    asia: true
+    london: true
+    new_york: true
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+BTCUSD:
+  allow_weekend: true
+  atr_period: 14
+  enabled: true
+  max_spread_pips: 3.0
+  min_confidence: 0.3
+  sessions:
+    asia: true
+    london: true
+    new_york: true
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+EURUSD:
+  allow_weekend: false
+  atr_period: 14
+  enabled: true
+  max_spread_pips: 3.0
+  min_confidence: 0.3
+  sessions:
+    asia: true
+    london: true
+    new_york: true
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+GBPUSD:
+  allow_weekend: false
+  atr_period: 14
+  enabled: true
+  max_spread_pips: 3.0
+  min_confidence: 0.3
+  sessions:
+    asia: true
+    london: true
+    new_york: true
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+NZDUSD:
+  allow_weekend: false
+  atr_period: 14
+  enabled: true
+  max_spread_pips: 3.0
+  min_confidence: 0.3
+  sessions:
+    asia: true
+    london: true
+    new_york: true
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+USDCAD:
+  allow_weekend: false
+  atr_period: 14
+  enabled: true
+  max_spread_pips: 3.0
+  min_confidence: 0.3
+  sessions:
+    asia: true
+    london: true
+    new_york: true
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+USDCHF:
+  allow_weekend: false
+  atr_period: 14
+  enabled: true
+  max_spread_pips: 3.0
+  min_confidence: 0.3
+  sessions:
+    asia: true
+    london: true
+    new_york: true
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+USDJPY:
+  allow_weekend: false
+  atr_period: 14
+  enabled: true
+  max_spread_pips: 3.0
+  min_confidence: 0.3
+  sessions:
+    asia: true
+    london: true
+    new_york: true
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0

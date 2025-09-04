@@ -1,0 +1,106 @@
+# Symbol Configuration Example
+# Copy this file to symbols.yaml and customize for your trading setup
+
+BTCUSD:
+  enabled: true
+  allow_weekend: true  # Only BTCUSD trades on weekends
+  min_confidence: 0.4
+  max_spread_pips: 5.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: true
+
+EURUSD:
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.3
+  max_spread_pips: 2.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: false
+
+GBPUSD:
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.35
+  max_spread_pips: 3.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: false
+
+USDJPY:
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.3
+  max_spread_pips: 2.5
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: true
+
+AUDUSD:
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.3
+  max_spread_pips: 3.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: false
+    new_york: true
+    asia: true
+
+USDCAD:
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.3
+  max_spread_pips: 3.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: false
+
+NZDUSD:
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.35
+  max_spread_pips: 4.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: false
+    new_york: true
+    asia: true
+
+USDCHF:
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.3
+  max_spread_pips: 3.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: false
