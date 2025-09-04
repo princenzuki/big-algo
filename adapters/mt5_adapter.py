@@ -490,12 +490,21 @@ class MT5Adapter(BrokerAdapter):
         )
         
         # Get minimum stop level from symbol info
-        min_stop_level = symbol_info.trade_stops_level
+        # Try different possible attribute names for minimum stop level
+        min_stop_level = 0
+        if hasattr(symbol_info, 'trade_stops_level'):
+            min_stop_level = symbol_info.trade_stops_level
+        elif hasattr(symbol_info, 'stops_level'):
+            min_stop_level = symbol_info.stops_level
+        else:
+            # Use a default minimum stop level (e.g., 10 points)
+            min_stop_level = 10
+            
         point = symbol_info.point
         
         if min_stop_level <= 0:
-            # No minimum stop level requirement
-            return adjusted_request
+            # Use a default minimum stop level
+            min_stop_level = 10
         
         # Calculate minimum distance in price units
         min_distance = min_stop_level * point
