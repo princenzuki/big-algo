@@ -1,96 +1,318 @@
-AUDUSD:
+# Exness MT5 Symbol Configuration
+# Updated with correct Exness MT5 symbol names including micro account suffixes (m)
+
+# Metals & Commodities
+XAUUSDm:  # GOLD
+  enabled: true
+  allow_weekend: true  # Metals trade on weekends
+  min_confidence: 0.4
+  max_spread_pips: 8.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: true
+
+BTCUSDm:  # BTCUSD
+  enabled: true
+  allow_weekend: true  # Crypto trades on weekends
+  min_confidence: 0.4
+  max_spread_pips: 15.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: true
+
+USOILm:  # USOIL
+  enabled: true
   allow_weekend: false
+  min_confidence: 0.4
+  max_spread_pips: 6.0
   atr_period: 14
-  enabled: true
-  max_spread_pips: 3.0
-  min_confidence: 0.3
-  sessions:
-    asia: true
-    london: true
-    new_york: true
   sl_multiplier: 2.0
   tp_multiplier: 3.0
-BTCUSD:
-  allow_weekend: true
-  atr_period: 14
-  enabled: true
-  max_spread_pips: 3.0
-  min_confidence: 0.3
   sessions:
-    asia: true
     london: true
     new_york: true
-  sl_multiplier: 2.0
-  tp_multiplier: 3.0
-EURUSD:
+    asia: false
+
+# Indices
+USTECm:  # NAS 100
+  enabled: true
   allow_weekend: false
+  min_confidence: 0.4
+  max_spread_pips: 4.0
   atr_period: 14
-  enabled: true
-  max_spread_pips: 3.0
-  min_confidence: 0.3
-  sessions:
-    asia: true
-    london: true
-    new_york: true
   sl_multiplier: 2.0
   tp_multiplier: 3.0
-GBPUSD:
+  sessions:
+    london: true
+    new_york: true
+    asia: false
+
+US500m:  # SPX 500
+  enabled: true
   allow_weekend: false
-  atr_period: 14
-  enabled: true
+  min_confidence: 0.4
   max_spread_pips: 3.0
-  min_confidence: 0.3
-  sessions:
-    asia: true
-    london: true
-    new_york: true
+  atr_period: 14
   sl_multiplier: 2.0
   tp_multiplier: 3.0
-NZDUSD:
+  sessions:
+    london: true
+    new_york: true
+    asia: false
+
+US30m:  # US 30
+  enabled: true
   allow_weekend: false
+  min_confidence: 0.4
+  max_spread_pips: 4.0
   atr_period: 14
-  enabled: true
-  max_spread_pips: 3.0
-  min_confidence: 0.3
-  sessions:
-    asia: true
-    london: true
-    new_york: true
   sl_multiplier: 2.0
   tp_multiplier: 3.0
-USDCAD:
+  sessions:
+    london: true
+    new_york: true
+    asia: false
+
+# Forex Pairs - Major
+EURUSDm:  # EURUSD
+  enabled: true
   allow_weekend: false
-  atr_period: 14
-  enabled: true
-  max_spread_pips: 3.0
   min_confidence: 0.3
-  sessions:
-    asia: true
-    london: true
-    new_york: true
+  max_spread_pips: 2.0
+  atr_period: 14
   sl_multiplier: 2.0
   tp_multiplier: 3.0
-USDCHF:
+  sessions:
+    london: true
+    new_york: true
+    asia: false
+
+GBPUSDm:  # GBPUSD
+  enabled: true
   allow_weekend: false
-  atr_period: 14
-  enabled: true
+  min_confidence: 0.35
   max_spread_pips: 3.0
-  min_confidence: 0.3
-  sessions:
-    asia: true
-    london: true
-    new_york: true
+  atr_period: 14
   sl_multiplier: 2.0
   tp_multiplier: 3.0
-USDJPY:
+  sessions:
+    london: true
+    new_york: true
+    asia: false
+
+USDJPYm:  # USDJPY
+  enabled: true
   allow_weekend: false
-  atr_period: 14
-  enabled: true
-  max_spread_pips: 3.0
   min_confidence: 0.3
-  sessions:
-    asia: true
-    london: true
-    new_york: true
+  max_spread_pips: 2.5
+  atr_period: 14
   sl_multiplier: 2.0
   tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: true
+
+AUDUSDm:  # AUDUSD
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.3
+  max_spread_pips: 3.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: false
+    new_york: true
+    asia: true
+
+USDCADm:  # USDCAD
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.3
+  max_spread_pips: 3.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: false
+
+USDCHFm:  # USDCHF
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.3
+  max_spread_pips: 3.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: false
+
+NZDUSDm:  # NZDUSD
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.35
+  max_spread_pips: 4.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: false
+    new_york: true
+    asia: true
+
+# Forex Pairs - Crosses
+EURJPYm:  # EURJPY
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.35
+  max_spread_pips: 3.5
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: true
+
+GBPJPYm:  # GBPJPY
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.4
+  max_spread_pips: 4.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: true
+
+CADJPYm:  # CADJPY
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.35
+  max_spread_pips: 4.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: true
+
+EURAUDm:  # EURAUD
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.35
+  max_spread_pips: 4.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: true
+
+EURGBPm:  # EURGBP
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.3
+  max_spread_pips: 2.5
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: false
+
+GBPCHFm:  # GBPCHF
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.4
+  max_spread_pips: 4.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: false
+
+GBPNZDm:  # GBPNZD
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.4
+  max_spread_pips: 5.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: true
+
+EURNZDm:  # EURNZD
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.4
+  max_spread_pips: 5.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: true
+
+AUDCHFm:  # AUDCHF
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.35
+  max_spread_pips: 4.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: true
+
+AUDCADm:  # AUDCAD
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.35
+  max_spread_pips: 4.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: true
+
+EURCHFm:  # EURCHF
+  enabled: true
+  allow_weekend: false
+  min_confidence: 0.3
+  max_spread_pips: 3.0
+  atr_period: 14
+  sl_multiplier: 2.0
+  tp_multiplier: 3.0
+  sessions:
+    london: true
+    new_york: true
+    asia: false
