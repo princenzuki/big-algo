@@ -284,8 +284,8 @@ class RiskManager:
         # Apply minimum lot size
         lot_size = max(lot_size, self.settings.min_lot_size)
         
-        # Round to broker precision (assuming 0.01)
-        lot_size = round(lot_size, 2)
+        # Note: Lot size will be properly rounded by the broker adapter
+        # using the actual lot_step from symbol_info
         
         logger.info(f"Position sizing for {symbol}: Risk={risk_amount:.2f}, "
                    f"Lots={lot_size:.2f}, Stop={stop_distance_pips:.1f} pips")

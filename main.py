@@ -413,12 +413,24 @@ class LorentzianTradingBot:
                 symbol, entry_price, stop_loss, confidence
             )
             
-            logger.info(f"   [SIZE] Position size: {lot_size:.2f} lots | Risk: ${risk_amount:.2f}")
+            # Round lot size to broker's step size
+            rounded_lot_size = self.broker_adapter.round_lot_size(lot_size, symbol)
             
-            if lot_size <= 0:
-                logger.info(f"   [SKIP] Invalid lot size ({lot_size:.2f})")
+            logger.info(f"   [SIZE] Position size: {lot_size:.3f} lots -> {rounded_lot_size:.3f} lots | Risk: ${risk_amount:.2f}")
+            
+            # Validate lot size after rounding
+            if rounded_lot_size <= 0:
+                logger.info(f"   [SKIP] Invalid lot size after rounding ({rounded_lot_size:.3f})")
                 cycle_stats['trades_skipped'] += 1
                 cycle_stats['skip_reasons']['Invalid lot size'] = cycle_stats['skip_reasons'].get('Invalid lot size', 0) + 1
+                return
+            
+            # Check if lot size is too small (less than minimum)
+            symbol_info = self.broker_adapter.get_symbol_info(symbol)
+            if symbol_info and rounded_lot_size < symbol_info.lot_min:
+                logger.info(f"   [SKIP] Lot size too small ({rounded_lot_size:.3f} < {symbol_info.lot_min:.3f})")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons']['Lot size too small'] = cycle_stats['skip_reasons'].get('Lot size too small', 0) + 1
                 return
             
             # Place order
@@ -427,13 +439,13 @@ class LorentzianTradingBot:
             order_request = OrderRequest(
                 symbol=symbol,
                 order_type=side,
-                lot_size=lot_size,
+                lot_size=rounded_lot_size,
                 stop_loss=stop_loss,
                 take_profit=take_profit,
                 comment="Lorentzian ML"
             )
             
-            logger.info(f"   [ORDER] Placing {side} order: {lot_size:.2f} lots @ {entry_price:.5f}")
+            logger.info(f"   [ORDER] Placing {side} order: {rounded_lot_size:.3f} lots @ {entry_price:.5f}")
             logger.info(f"   [LEVELS] Stop Loss: {stop_loss:.5f} | Take Profit: {take_profit:.5f}")
             
             order_result = self.broker_adapter.place_order(order_request)
@@ -444,14 +456,14 @@ class LorentzianTradingBot:
                     symbol=symbol,
                     side=side,
                     entry_price=entry_price,
-                    lot_size=lot_size,
+                    lot_size=rounded_lot_size,
                     stop_loss=stop_loss,
                     take_profit=take_profit,
                     confidence=confidence,
                     risk_amount=risk_amount
                 )
                 
-                logger.info(f"   [EXECUTED] TRADE EXECUTED: {symbol} {side.upper()} {lot_size:.2f} lots @ {entry_price:.5f}")
+                logger.info(f"   [EXECUTED] TRADE EXECUTED: {symbol} {side.upper()} {rounded_lot_size:.3f} lots @ {entry_price:.5f}")
                 logger.info(f"   [DETAILS] Confidence: {confidence:.3f} | Risk: ${risk_amount:.2f}")
                 logger.info(f"   [LEVELS] SL: {stop_loss:.5f} | TP: {take_profit:.5f}")
                 

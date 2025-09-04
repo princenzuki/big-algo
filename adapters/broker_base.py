@@ -276,7 +276,13 @@ class BrokerAdapter(ABC):
         """
         symbol_info = self.get_symbol_info(symbol)
         if not symbol_info:
-            return lot_size
+            logger.warning(f"Symbol info not available for {symbol}, using fallback rounding")
+            return round(lot_size, 2)  # Fallback to 0.01 precision
+        
+        # Ensure lot size is not negative
+        if lot_size <= 0:
+            logger.warning(f"Invalid lot size {lot_size} for {symbol}, using minimum")
+            return symbol_info.lot_min
         
         # Round to lot step
         steps = round((lot_size - symbol_info.lot_min) / symbol_info.lot_step)
@@ -285,6 +291,11 @@ class BrokerAdapter(ABC):
         # Ensure within bounds
         rounded = max(rounded, symbol_info.lot_min)
         rounded = min(rounded, symbol_info.lot_max)
+        
+        # Log if significant rounding occurred
+        if abs(rounded - lot_size) > symbol_info.lot_step * 0.5:
+            logger.debug(f"Lot size rounded for {symbol}: {lot_size:.3f} -> {rounded:.3f} "
+                        f"(min: {symbol_info.lot_min:.3f}, step: {symbol_info.lot_step:.3f})")
         
         return rounded
     
