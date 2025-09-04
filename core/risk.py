@@ -488,12 +488,24 @@ class RiskManager:
             return 10.0  # Placeholder
     
     def _get_pip_size(self, symbol: str) -> float:
-        """Get pip size for symbol"""
-        # Simplified pip size calculation
-        if 'JPY' in symbol:
-            return 0.01
-        else:
-            return 0.0001
+        """Get pip size for symbol using MT5 symbol info"""
+        try:
+            import MetaTrader5 as mt5
+            symbol_info = mt5.symbol_info(symbol)
+            if symbol_info:
+                return symbol_info.point
+            else:
+                # Fallback to simplified calculation
+                if 'JPY' in symbol:
+                    return 0.01
+                else:
+                    return 0.0001
+        except Exception:
+            # Fallback to simplified calculation
+            if 'JPY' in symbol:
+                return 0.01
+            else:
+                return 0.0001
     
     def get_risk_summary(self) -> Dict[str, any]:
         """Get current risk status summary"""
