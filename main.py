@@ -139,8 +139,9 @@ class LorentzianTradingBot:
         
         for symbol in enabled_symbols:
             try:
-                # Get historical rates (last 1000 bars)
-                rates = self.broker_adapter.get_rates(symbol, 'M5', 1000)
+                # Get historical rates (last 1000 bars) - using 5-minute timeframe to match Pine Script
+                timeframe = settings_manager.get_all_settings().trading_timeframe
+                rates = self.broker_adapter.get_rates(symbol, timeframe, 1000)
                 
                 if rates:
                     self.historical_data[symbol] = rates
