@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 import time
 
 from core.signals import LorentzianClassifier, Settings, FilterSettings
-from core.risk import RiskManager, RiskSettings, AccountInfo, get_dynamic_spread, get_intelligent_sl
+from core.risk import RiskManager, RiskSettings, AccountInfo, get_dynamic_spread, get_intelligent_sl, calculate_trailing_stop
 from core.sessions import SessionManager
 from core.portfolio import PortfolioManager
 from adapters.mt5_adapter import MT5Adapter
@@ -210,6 +210,9 @@ class LorentzianTradingBot:
                     logger.error(f"Error processing {symbol}: {e}")
                     self.errors_count += 1
             
+            # Monitor open positions for trailing stops
+            await self._monitor_positions()
+            
             # Log cycle completion with detailed stats
             logger.info(f"[SUMMARY] Trading cycle completed:")
             logger.info(f"   - Signals processed: {cycle_stats['signals_processed']}")
@@ -331,6 +334,42 @@ class LorentzianTradingBot:
             logger.error(f"Error processing symbol {symbol}: {e}")
             self.errors_count += 1
     
+    async def _monitor_positions(self):
+        """Monitor open positions for trailing stops and updates"""
+        try:
+            # Get current positions from risk manager
+            open_positions = [pos for pos in self.risk_manager.positions.values() if pos.status == 'open']
+            
+            if not open_positions:
+                return
+            
+            logger.debug(f"[MONITOR] Checking {len(open_positions)} open positions for trailing stops")
+            
+            for position in open_positions:
+                try:
+                    # Get current market price
+                    symbol_info = self.broker_adapter.get_symbol_info(position.symbol)
+                    if not symbol_info:
+                        continue
+                    
+                    current_price = symbol_info.ask if position.side == 'buy' else symbol_info.bid
+                    
+                    # Get historical data for ATR calculation
+                    historical_data = self.historical_data.get(position.symbol, [])
+                    
+                    # Update position with trailing stop logic
+                    self.risk_manager.update_position_prices(
+                        position.symbol, 
+                        current_price, 
+                        historical_data
+                    )
+                    
+                except Exception as e:
+                    logger.error(f"Error monitoring position {position.symbol}: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Error in position monitoring: {e}")
+    
     async def _process_signal(self, symbol: str, signal_data: Dict, symbol_info, symbol_config: Dict, cycle_stats: Dict):
         """Process a trading signal with detailed logging"""
         try:
@@ -343,10 +382,10 @@ class LorentzianTradingBot:
                 return
             
             # Determine trade side
-            side = 'long' if signal > 0 else 'short'
+            side = 'buy' if signal > 0 else 'sell'
             
             # Calculate stop loss and take profit
-            entry_price = symbol_info.ask if side == 'long' else symbol_info.bid
+            entry_price = symbol_info.ask if side == 'buy' else symbol_info.bid
             
             # Use intelligent ATR-based stop loss calculation
             atr_period = symbol_config.get('atr_period', 14)
@@ -360,7 +399,7 @@ class LorentzianTradingBot:
             # Convert ATR distance to price levels
             atr_price_distance = atr_sl_distance / 10000  # Convert pips to price
             
-            if side == 'long':
+            if side == 'buy':
                 stop_loss = entry_price - atr_price_distance
                 take_profit = entry_price + (atr_price_distance * tp_multiplier / sl_multiplier)
             else:

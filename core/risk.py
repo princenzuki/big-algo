@@ -89,6 +89,95 @@ def get_intelligent_sl(symbol_data: List[Dict], atr_multiplier: float = 2.0) -> 
     
     return atr_sl
 
+
+def calculate_trailing_stop(position: Position, current_price: float, current_atr: float, 
+                          historical_data: List[Dict]) -> Tuple[float, bool, str]:
+    """
+    Calculate intelligent trailing stop based on ATR and market conditions.
+    
+    Args:
+        position: Current position object
+        current_price: Current market price
+        current_atr: Current ATR value
+        historical_data: Historical data for ATR calculation
+        
+    Returns:
+        Tuple of (new_stop_loss, stop_updated, log_message)
+    """
+    if position.status != 'open':
+        return position.stop_loss, False, "Position not open"
+    
+    # Initialize trailing stop if not enabled yet
+    if not position.trailing_enabled:
+        # Check if trade moved in favor by at least 0.5 × ATR
+        if position.side == 'buy':
+            profit_distance = current_price - position.entry_price
+            trigger_distance = current_atr * 0.5
+            if profit_distance >= trigger_distance:
+                position.trailing_enabled = True
+                position.original_stop_loss = position.stop_loss
+                position.best_price = current_price
+                position.atr_distance = current_atr
+                new_stop = current_price - current_atr
+                return new_stop, True, f"Trailing enabled: {profit_distance:.5f} >= {trigger_distance:.5f}"
+        else:  # sell
+            profit_distance = position.entry_price - current_price
+            trigger_distance = current_atr * 0.5
+            if profit_distance >= trigger_distance:
+                position.trailing_enabled = True
+                position.original_stop_loss = position.stop_loss
+                position.best_price = current_price
+                position.atr_distance = current_atr
+                new_stop = current_price + current_atr
+                return new_stop, True, f"Trailing enabled: {profit_distance:.5f} >= {trigger_distance:.5f}"
+        
+        return position.stop_loss, False, "Trailing not triggered yet"
+    
+    # Trailing stop is enabled, update it
+    updated = False
+    log_message = ""
+    
+    if position.side == 'buy':
+        # Update best price if current price is higher
+        if current_price > position.best_price:
+            position.best_price = current_price
+            
+            # Calculate new trailing stop
+            new_stop = current_price - current_atr
+            
+            # Don't move below break-even
+            break_even_stop = position.entry_price
+            new_stop = max(new_stop, break_even_stop)
+            
+            # Only update if new stop is better (higher)
+            if new_stop > position.stop_loss:
+                position.stop_loss = new_stop
+                position.atr_distance = current_atr
+                updated = True
+                log_message = f"Trailing updated: {new_stop:.5f} (BE: {break_even_stop:.5f})"
+    
+    else:  # sell
+        # Update best price if current price is lower
+        if current_price < position.best_price:
+            position.best_price = current_price
+            
+            # Calculate new trailing stop
+            new_stop = current_price + current_atr
+            
+            # Don't move above break-even
+            break_even_stop = position.entry_price
+            new_stop = min(new_stop, break_even_stop)
+            
+            # Only update if new stop is better (lower)
+            if new_stop < position.stop_loss:
+                position.stop_loss = new_stop
+                position.atr_distance = current_atr
+                updated = True
+                log_message = f"Trailing updated: {new_stop:.5f} (BE: {break_even_stop:.5f})"
+    
+    return position.stop_loss, updated, log_message
+
+
 @dataclass
 class RiskSettings:
     """Risk management configuration"""
@@ -103,7 +192,7 @@ class RiskSettings:
 class Position:
     """Individual position tracking"""
     symbol: str
-    side: str  # 'long' or 'short'
+    side: str  # 'buy' or 'sell'
     entry_price: float
     lot_size: float
     stop_loss: float
@@ -112,6 +201,11 @@ class Position:
     risk_amount: float
     opened_at: datetime
     status: str = 'open'  # 'open', 'closed', 'stopped'
+    # Trailing stop fields
+    original_stop_loss: float = 0.0
+    trailing_enabled: bool = False
+    best_price: float = 0.0
+    atr_distance: float = 0.0
 
 @dataclass
 class AccountInfo:
@@ -312,26 +406,60 @@ class RiskManager:
         
         return pnl
     
-    def update_position_prices(self, symbol: str, current_price: float):
+    def update_position_prices(self, symbol: str, current_price: float, historical_data: List[Dict] = None):
         """
-        Update position with current market price for monitoring
+        Update position with current market price for monitoring and trailing stops
         """
         if symbol not in self.positions or self.positions[symbol].status != 'open':
             return
         
         position = self.positions[symbol]
         
+        # Update trailing stop if historical data is available
+        if historical_data:
+            current_atr = self._calculate_current_atr(historical_data)
+            if current_atr > 0:
+                new_stop, updated, log_msg = calculate_trailing_stop(position, current_price, current_atr, historical_data)
+                if updated:
+                    logger.info(f"[TRAILING] {symbol}: {log_msg}")
+                    # Update the stop loss in MT5 if needed
+                    self._update_stop_loss_in_mt5(symbol, new_stop)
+        
         # Check for stop loss or take profit
-        if position.side == 'long':
+        if position.side == 'buy':
             if current_price <= position.stop_loss:
                 self.close_position(symbol, current_price, "stop_loss")
             elif current_price >= position.take_profit:
                 self.close_position(symbol, current_price, "take_profit")
-        else:
+        else:  # sell
             if current_price >= position.stop_loss:
                 self.close_position(symbol, current_price, "stop_loss")
             elif current_price <= position.take_profit:
                 self.close_position(symbol, current_price, "take_profit")
+    
+    def _calculate_current_atr(self, historical_data: List[Dict]) -> float:
+        """Calculate current ATR from historical data"""
+        if not historical_data or len(historical_data) < 14:
+            return 0.0
+        
+        df = pd.DataFrame(historical_data)
+        high = df['high']
+        low = df['low']
+        close = df['close']
+        
+        # Calculate True Range
+        tr = np.maximum(high - low, np.maximum(abs(high - close.shift(1)), abs(low - close.shift(1))))
+        
+        # Calculate 14-period ATR
+        atr = tr.rolling(window=14).mean().iloc[-1]
+        
+        return atr if not pd.isna(atr) else 0.0
+    
+    def _update_stop_loss_in_mt5(self, symbol: str, new_stop_loss: float):
+        """Update stop loss in MT5 (placeholder for now)"""
+        # This would integrate with MT5 adapter to modify the stop loss
+        # For now, we'll just log the update
+        logger.debug(f"MT5 Stop Loss Update: {symbol} -> {new_stop_loss:.5f}")
     
     def _calculate_current_risk(self) -> float:
         """Calculate current account risk percentage"""
