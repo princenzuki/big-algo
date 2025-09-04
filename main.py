@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 import time
 
 from core.signals import LorentzianClassifier, Settings, FilterSettings
-from core.risk import RiskManager, RiskSettings, AccountInfo
+from core.risk import RiskManager, RiskSettings, AccountInfo, get_dynamic_spread, get_intelligent_sl
 from core.sessions import SessionManager
 from core.portfolio import PortfolioManager
 from adapters.mt5_adapter import MT5Adapter
@@ -310,12 +310,16 @@ class LorentzianTradingBot:
                 return
             
             spread_pips = self.broker_adapter.calculate_spread_pips(symbol)
-            max_spread = symbol_config.get('max_spread_pips', 3.0)
+            base_max_spread = symbol_config.get('max_spread_pips', 3.0)
             
-            logger.info(f"   [SPREAD] Spread: {spread_pips:.1f} pips (max: {max_spread:.1f})")
+            # Calculate dynamic spread based on recent market conditions
+            historical_data = self.historical_data.get(symbol, [])
+            dynamic_max_spread = get_dynamic_spread(historical_data, base_max_spread, spread_multiplier=1.5)
             
-            if spread_pips > max_spread:
-                logger.info(f"   [SKIP] Spread too wide ({spread_pips:.1f} > {max_spread:.1f} pips)")
+            logger.info(f"   [SPREAD] Spread: {spread_pips:.1f} pips (base: {base_max_spread:.1f}, dynamic: {dynamic_max_spread:.1f})")
+            
+            if spread_pips > dynamic_max_spread:
+                logger.info(f"   [SKIP] Spread too wide ({spread_pips:.1f} > {dynamic_max_spread:.1f} pips)")
                 cycle_stats['trades_skipped'] += 1
                 cycle_stats['skip_reasons']['Spread too wide'] = cycle_stats['skip_reasons'].get('Spread too wide', 0) + 1
                 return
@@ -344,20 +348,24 @@ class LorentzianTradingBot:
             # Calculate stop loss and take profit
             entry_price = symbol_info.ask if side == 'long' else symbol_info.bid
             
-            # Use ATR for stop loss/take profit calculation
+            # Use intelligent ATR-based stop loss calculation
             atr_period = symbol_config.get('atr_period', 14)
             sl_multiplier = symbol_config.get('sl_multiplier', 2.0)
             tp_multiplier = symbol_config.get('tp_multiplier', 3.0)
             
-            # Simplified ATR calculation (would use proper ATR)
-            atr = 0.001  # Placeholder
+            # Calculate intelligent ATR-based stop loss distance
+            historical_data = self.historical_data.get(symbol, [])
+            atr_sl_distance = get_intelligent_sl(historical_data, atr_multiplier=sl_multiplier)
+            
+            # Convert ATR distance to price levels
+            atr_price_distance = atr_sl_distance / 10000  # Convert pips to price
             
             if side == 'long':
-                stop_loss = entry_price - (atr * sl_multiplier)
-                take_profit = entry_price + (atr * tp_multiplier)
+                stop_loss = entry_price - atr_price_distance
+                take_profit = entry_price + (atr_price_distance * tp_multiplier / sl_multiplier)
             else:
-                stop_loss = entry_price + (atr * sl_multiplier)
-                take_profit = entry_price - (atr * tp_multiplier)
+                stop_loss = entry_price + atr_price_distance
+                take_profit = entry_price - (atr_price_distance * tp_multiplier / sl_multiplier)
             
             # Check if we can open a position
             can_open, reason = self.risk_manager.can_open_position(symbol, symbol_info.spread)

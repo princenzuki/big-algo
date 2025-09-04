@@ -14,8 +14,79 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+# ===============================
+# Dynamic Spread & Smart Stop Logic
+# ===============================
+
+def get_dynamic_spread(symbol_data: List[Dict], base_min_spread: float, spread_multiplier: float = 1.5) -> float:
+    """
+    Calculate intelligent spread per symbol based on recent market conditions.
+    
+    Args:
+        symbol_data: List of dicts with 'ask' and 'bid' columns
+        base_min_spread: float, minimum allowed spread in pips
+        spread_multiplier: float, multiplies average spread for breathing room
+
+    Returns:
+        max_allowed_spread: float
+    """
+    if not symbol_data or len(symbol_data) < 20:
+        return base_min_spread
+    
+    # Convert to DataFrame for easier calculation
+    df = pd.DataFrame(symbol_data)
+    
+    # Compute recent spread in pips (assuming 4-digit forex pairs)
+    df['spread'] = (df['ask'] - df['bid']) * 10000
+    
+    # Calculate rolling average of last 20 bars
+    recent_avg = df['spread'].rolling(window=20).mean().iloc[-1]
+    
+    # Return max of base minimum or calculated dynamic spread
+    max_allowed_spread = max(base_min_spread, recent_avg * spread_multiplier)
+    
+    logger.debug(f"Dynamic spread calculation: base={base_min_spread}, recent_avg={recent_avg:.2f}, multiplier={spread_multiplier}, result={max_allowed_spread:.2f}")
+    
+    return max_allowed_spread
+
+
+def get_intelligent_sl(symbol_data: List[Dict], atr_multiplier: float = 2.0) -> float:
+    """
+    Place smart stops using ATR-based volatility.
+    
+    Args:
+        symbol_data: List of dicts with 'high', 'low', 'close' columns
+        atr_multiplier: float, how many ATRs to use for stop
+
+    Returns:
+        atr_sl: float, stop distance in pips
+    """
+    if not symbol_data or len(symbol_data) < 14:
+        return 20.0  # Default fallback
+    
+    # Convert to DataFrame for easier calculation
+    df = pd.DataFrame(symbol_data)
+    
+    high = df['high']
+    low = df['low']
+    close = df['close']
+    
+    # Calculate True Range
+    tr = np.maximum(high - low, np.maximum(abs(high - close.shift(1)), abs(low - close.shift(1))))
+    
+    # Calculate 14-period ATR
+    atr = tr.rolling(window=14).mean().iloc[-1]
+    
+    # Convert to pips (assuming 4-digit forex pairs)
+    atr_sl = atr * atr_multiplier * 10000
+    
+    logger.debug(f"ATR-based SL calculation: ATR={atr:.5f}, multiplier={atr_multiplier}, result={atr_sl:.2f} pips")
+    
+    return atr_sl
 
 @dataclass
 class RiskSettings:
