@@ -140,19 +140,7 @@ class MT5Adapter(BrokerAdapter):
         Logs any deviations from requested parameters.
         """
         try:
-            # Validate request
-            is_valid, error_msg = self.validate_order_request(request)
-            if not is_valid:
-                return OrderResult(
-                    success=False,
-                    order_id=None,
-                    error_code=None,
-                    error_message=error_msg,
-                    price=None,
-                    deviation=None
-                )
-            
-            # Get symbol info
+            # Get symbol info first
             symbol_info = self.get_symbol_info(request.symbol)
             if not symbol_info:
                 return OrderResult(
@@ -167,6 +155,20 @@ class MT5Adapter(BrokerAdapter):
             # Round lot size to broker precision
             original_lot_size = request.lot_size
             rounded_lot_size = self.round_lot_size(request.lot_size, request.symbol)
+            
+            # Validate request with rounded lot size
+            request_copy = request
+            request_copy.lot_size = rounded_lot_size
+            is_valid, error_msg = self.validate_order_request(request_copy)
+            if not is_valid:
+                return OrderResult(
+                    success=False,
+                    order_id=None,
+                    error_code=None,
+                    error_message=error_msg,
+                    price=None,
+                    deviation=None
+                )
             
             # Log deviation if lot size was rounded
             if abs(rounded_lot_size - original_lot_size) > 0.001:
@@ -232,7 +234,7 @@ class MT5Adapter(BrokerAdapter):
                     error_code=result.retcode,
                     error_message=result.comment,
                     price=result.price,
-                    deviation=result.deviation
+                    deviation=None
                 )
             
             # Log successful order
@@ -245,7 +247,7 @@ class MT5Adapter(BrokerAdapter):
                 error_code=None,
                 error_message=None,
                 price=result.price,
-                deviation=result.deviation
+                deviation=None
             )
             
         except Exception as e:
