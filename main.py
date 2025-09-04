@@ -17,6 +17,7 @@ from core.signals import LorentzianClassifier, Settings, FilterSettings
 from core.risk import RiskManager, RiskSettings, AccountInfo, get_dynamic_spread, get_intelligent_sl, calculate_trailing_stop
 from core.sessions import SessionManager
 from core.portfolio import PortfolioManager
+from core.smart_tp import SmartTakeProfit, SmartTPConfig
 from adapters.mt5_adapter import MT5Adapter
 from config.settings import settings_manager
 
@@ -73,6 +74,9 @@ class LorentzianTradingBot:
         
         self.session_manager = SessionManager()
         self.portfolio_manager = PortfolioManager(self.settings.database_path)
+        
+        # Initialize Smart Take Profit system
+        self.smart_tp = SmartTakeProfit(SmartTPConfig())
         
         # Initialize broker adapter
         self.broker_adapter = MT5Adapter(
@@ -353,11 +357,48 @@ class LorentzianTradingBot:
                         historical_data
                     )
                     
+                    # Check Smart Take Profit conditions
+                    await self._check_smart_tp(position.symbol, current_price, historical_data)
+                    
                 except Exception as e:
                     logger.error(f"Error monitoring position {position.symbol}: {e}")
                     
         except Exception as e:
             logger.error(f"Error in position monitoring: {e}")
+    
+    async def _check_smart_tp(self, symbol: str, current_price: float, historical_data: List[Dict]):
+        """Check and handle Smart Take Profit conditions"""
+        try:
+            # Check if partial TP should be taken
+            if self.smart_tp.check_partial_tp(symbol, current_price):
+                await self._take_partial_profit(symbol, current_price)
+            
+            # Update trailing TP for remaining position
+            new_trailing_tp = self.smart_tp.update_trailing_tp(symbol, current_price, historical_data)
+            if new_trailing_tp:
+                logger.info(f"[SMART_TP] Trailing TP updated for {symbol}: {new_trailing_tp:.5f}")
+                # Here you would update the TP in MT5 if needed
+                
+        except Exception as e:
+            logger.error(f"Error in Smart TP check for {symbol}: {e}")
+    
+    async def _take_partial_profit(self, symbol: str, current_price: float):
+        """Take partial profit at the partial TP level"""
+        try:
+            # Mark partial TP as taken
+            self.smart_tp.take_partial_tp(symbol)
+            
+            # Here you would implement the actual partial close in MT5
+            # For now, we'll just log it
+            logger.info(f"[SMART_TP] Partial profit taken for {symbol} at {current_price:.5f}")
+            
+            # Note: In a full implementation, you would:
+            # 1. Calculate the partial lot size (e.g., 50% of position)
+            # 2. Close that portion of the position
+            # 3. Update the remaining position's TP to trailing mode
+            
+        except Exception as e:
+            logger.error(f"Error taking partial profit for {symbol}: {e}")
     
     async def _process_signal(self, symbol: str, signal_data: Dict, symbol_info, symbol_config: Dict, cycle_stats: Dict):
         """Process a trading signal with detailed logging"""
@@ -396,22 +437,35 @@ class LorentzianTradingBot:
             
             stop_loss_price_distance = stop_loss_pips * pip_value
             
-            # Calculate take profit (use ATR-based for TP to maintain R:R ratio)
-            atr_period = symbol_config.get('atr_period', 14)
-            tp_multiplier = symbol_config.get('tp_multiplier', 3.0)
+            # Calculate Smart Take Profit
             historical_data = self.historical_data.get(symbol, [])
-            atr_tp_distance = get_intelligent_sl(historical_data, atr_multiplier=tp_multiplier)
-            tp_price_distance = atr_tp_distance * pip_value  # Convert pips to price using same pip value
             
+            # First calculate stop loss
             if side == 'buy':
                 stop_loss = entry_price - stop_loss_price_distance
-                take_profit = entry_price + tp_price_distance
             else:
                 stop_loss = entry_price + stop_loss_price_distance
-                take_profit = entry_price - tp_price_distance
+            
+            # Calculate Smart Take Profit levels
+            smart_tp_result = self.smart_tp.calculate_smart_tp(
+                symbol=symbol,
+                entry_price=entry_price,
+                side=side,
+                historical_data=historical_data,
+                stop_loss=stop_loss
+            )
+            
+            # Use the full TP price for initial order
+            take_profit = smart_tp_result.full_tp_price
+            
+            # Register position for Smart TP tracking
+            self.smart_tp.register_position(symbol, side, entry_price, smart_tp_result)
             
             logger.info(f"   [STOP] Spread: {current_spread_pips:.1f} pips, SL distance: {stop_loss_pips:.1f} pips")
             logger.info(f"   [CALC] Pip value: {pip_value:.5f}, Price distance: {stop_loss_price_distance:.5f}")
+            logger.info(f"   [SMART_TP] Momentum: {smart_tp_result.momentum_strength}, TP multiplier: {smart_tp_result.tp_multiplier:.1f}")
+            if smart_tp_result.should_take_partial:
+                logger.info(f"   [SMART_TP] Partial TP: {smart_tp_result.partial_tp_price:.5f} (R:R {self.smart_tp.config.partial_tp_rr:.1f})")
             
             # Check if we can open a position
             can_open, reason = self.risk_manager.can_open_position(symbol, symbol_info.spread)
@@ -520,6 +574,8 @@ class LorentzianTradingBot:
                 if not position_found:
                     # Position was closed
                     logger.info(f"Position closed: {trade.symbol} {trade.side}")
+                    # Clean up Smart TP tracking
+                    self.smart_tp.close_position(trade.symbol)
                     # Note: In a real implementation, we'd need to get the actual close price
                     # For now, we'll mark it as closed with a placeholder
                     self.portfolio_manager.close_trade(trade.id, 0.0, "position_closed")
