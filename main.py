@@ -313,16 +313,18 @@ class LorentzianTradingBot:
                 return
             
             spread_pips = self.broker_adapter.calculate_spread_pips(symbol)
-            base_max_spread = symbol_config.get('max_spread_pips', 3.0)
             
-            # Calculate dynamic spread based on recent market conditions
+            # Calculate dynamic spread based on recent market conditions (no base spread)
             historical_data = self.historical_data.get(symbol, [])
-            dynamic_max_spread = get_dynamic_spread(historical_data, base_max_spread, spread_multiplier=1.5)
+            dynamic_max_spread = get_dynamic_spread(historical_data, 0.0, spread_multiplier=1.5)
             
-            logger.info(f"   [SPREAD] Spread: {spread_pips:.1f} pips (base: {base_max_spread:.1f}, dynamic: {dynamic_max_spread:.1f})")
+            # Add small buffer for volatility/slippage (optional)
+            dynamic_max_spread_with_buffer = dynamic_max_spread * 1.1
             
-            if spread_pips > dynamic_max_spread:
-                logger.info(f"   [SKIP] Spread too wide ({spread_pips:.1f} > {dynamic_max_spread:.1f} pips)")
+            logger.info(f"   [SPREAD] Spread: {spread_pips:.1f} pips (dynamic: {dynamic_max_spread:.1f}, with buffer: {dynamic_max_spread_with_buffer:.1f})")
+            
+            if spread_pips > dynamic_max_spread_with_buffer:
+                logger.info(f"   [SKIP] Spread too wide ({spread_pips:.1f} > {dynamic_max_spread_with_buffer:.1f} pips)")
                 cycle_stats['trades_skipped'] += 1
                 cycle_stats['skip_reasons']['Spread too wide'] = cycle_stats['skip_reasons'].get('Spread too wide', 0) + 1
                 return

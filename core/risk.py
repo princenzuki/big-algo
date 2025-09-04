@@ -28,14 +28,15 @@ def get_dynamic_spread(symbol_data: List[Dict], base_min_spread: float, spread_m
     
     Args:
         symbol_data: List of dicts with 'high', 'low', 'open', 'close' columns
-        base_min_spread: float, minimum allowed spread in pips
+        base_min_spread: float, minimum allowed spread in pips (0.0 means no base)
         spread_multiplier: float, multiplies average spread for breathing room
 
     Returns:
         max_allowed_spread: float
     """
     if not symbol_data or len(symbol_data) < 20:
-        return base_min_spread
+        # If no base spread specified, return a minimal fallback
+        return base_min_spread if base_min_spread > 0 else 1.0
     
     # Convert to DataFrame for easier calculation
     df = pd.DataFrame(symbol_data)
@@ -47,8 +48,15 @@ def get_dynamic_spread(symbol_data: List[Dict], base_min_spread: float, spread_m
     # Calculate rolling average of last 20 bars
     recent_avg = df['estimated_spread'].rolling(window=20).mean().iloc[-1]
     
-    # Return max of base minimum or calculated dynamic spread
-    max_allowed_spread = max(base_min_spread, recent_avg * spread_multiplier)
+    # Calculate dynamic spread
+    dynamic_spread = recent_avg * spread_multiplier
+    
+    # If no base spread specified, use only dynamic spread
+    if base_min_spread <= 0:
+        max_allowed_spread = dynamic_spread
+    else:
+        # Return max of base minimum or calculated dynamic spread
+        max_allowed_spread = max(base_min_spread, dynamic_spread)
     
     logger.debug(f"Dynamic spread calculation: base={base_min_spread}, recent_avg={recent_avg:.2f}, multiplier={spread_multiplier}, result={max_allowed_spread:.2f}")
     
