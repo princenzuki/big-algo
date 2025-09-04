@@ -312,22 +312,9 @@ class LorentzianTradingBot:
                 cycle_stats['skip_reasons']['No symbol info'] = cycle_stats['skip_reasons'].get('No symbol info', 0) + 1
                 return
             
+            # Get current spread for logging (no restrictions)
             spread_pips = self.broker_adapter.calculate_spread_pips(symbol)
-            
-            # Calculate dynamic spread based on recent market conditions (no base spread)
-            historical_data = self.historical_data.get(symbol, [])
-            dynamic_max_spread = get_dynamic_spread(historical_data, 0.0, spread_multiplier=1.5)
-            
-            # Add small buffer for volatility/slippage (optional)
-            dynamic_max_spread_with_buffer = dynamic_max_spread * 1.1
-            
-            logger.info(f"   [SPREAD] Spread: {spread_pips:.1f} pips (dynamic: {dynamic_max_spread:.1f}, with buffer: {dynamic_max_spread_with_buffer:.1f})")
-            
-            if spread_pips > dynamic_max_spread_with_buffer:
-                logger.info(f"   [SKIP] Spread too wide ({spread_pips:.1f} > {dynamic_max_spread_with_buffer:.1f} pips)")
-                cycle_stats['trades_skipped'] += 1
-                cycle_stats['skip_reasons']['Spread too wide'] = cycle_stats['skip_reasons'].get('Spread too wide', 0) + 1
-                return
+            logger.info(f"   [SPREAD] Current spread: {spread_pips:.1f} pips")
             
             # Process signal
             await self._process_signal(symbol, signal_data, symbol_info, symbol_config, cycle_stats)
@@ -386,27 +373,32 @@ class LorentzianTradingBot:
             # Determine trade side
             side = 'buy' if signal > 0 else 'sell'
             
-            # Calculate stop loss and take profit
+            # Calculate stop loss and take profit based on real-time spread
             entry_price = symbol_info.ask if side == 'buy' else symbol_info.bid
             
-            # Use intelligent ATR-based stop loss calculation
+            # Get real-time spread and calculate spread-adaptive stop loss
+            current_spread_pips = self.broker_adapter.calculate_spread_pips(symbol)
+            stop_loss_pips = current_spread_pips + 10  # Spread + 10 pips buffer
+            
+            # Get symbol point value for accurate price calculation
+            symbol_point = self.broker_adapter.get_symbol_point(symbol)
+            stop_loss_price_distance = stop_loss_pips * symbol_point
+            
+            # Calculate take profit (use ATR-based for TP to maintain R:R ratio)
             atr_period = symbol_config.get('atr_period', 14)
-            sl_multiplier = symbol_config.get('sl_multiplier', 2.0)
             tp_multiplier = symbol_config.get('tp_multiplier', 3.0)
-            
-            # Calculate intelligent ATR-based stop loss distance
             historical_data = self.historical_data.get(symbol, [])
-            atr_sl_distance = get_intelligent_sl(historical_data, atr_multiplier=sl_multiplier)
-            
-            # Convert ATR distance to price levels
-            atr_price_distance = atr_sl_distance / 10000  # Convert pips to price
+            atr_tp_distance = get_intelligent_sl(historical_data, atr_multiplier=tp_multiplier)
+            tp_price_distance = atr_tp_distance / 10000  # Convert pips to price
             
             if side == 'buy':
-                stop_loss = entry_price - atr_price_distance
-                take_profit = entry_price + (atr_price_distance * tp_multiplier / sl_multiplier)
+                stop_loss = entry_price - stop_loss_price_distance
+                take_profit = entry_price + tp_price_distance
             else:
-                stop_loss = entry_price + atr_price_distance
-                take_profit = entry_price - (atr_price_distance * tp_multiplier / sl_multiplier)
+                stop_loss = entry_price + stop_loss_price_distance
+                take_profit = entry_price - tp_price_distance
+            
+            logger.info(f"   [STOP] Spread: {current_spread_pips:.1f} pips, SL distance: {stop_loss_pips:.1f} pips")
             
             # Check if we can open a position
             can_open, reason = self.risk_manager.can_open_position(symbol, symbol_info.spread)

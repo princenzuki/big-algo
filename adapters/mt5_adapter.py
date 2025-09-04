@@ -121,6 +121,18 @@ class MT5Adapter(BrokerAdapter):
             logger.error(f"Error getting symbol info for {symbol}: {e}")
             return None
     
+    def get_symbol_point(self, symbol: str) -> float:
+        """Get symbol point value for accurate price calculations"""
+        try:
+            symbol_info = mt5.symbol_info(symbol)
+            if not symbol_info:
+                logger.error(f"Symbol {symbol} not found: {mt5.last_error()}")
+                return 0.0001  # Default fallback
+            return symbol_info.point
+        except Exception as e:
+            logger.error(f"Error getting symbol point for {symbol}: {e}")
+            return 0.0001  # Default fallback
+    
     def place_order(self, request: OrderRequest) -> OrderResult:
         """
         Place order in MT5
