@@ -200,9 +200,11 @@ class LorentzianTradingBot:
             }
             
             logger.info(f"🔄 Starting trading cycle - Processing {len(enabled_symbols)} symbols")
+            logger.info(f"📋 Enabled symbols: {enabled_symbols[:5]}...")  # Show first 5 symbols
             
             for symbol in enabled_symbols:
                 try:
+                    logger.info(f"🔍 Processing symbol: {symbol}")
                     result = await self._process_symbol(symbol, cycle_stats)
                 except Exception as e:
                     logger.error(f"Error processing {symbol}: {e}")
@@ -266,8 +268,10 @@ class LorentzianTradingBot:
             
             # Get historical data for this symbol
             historical_data = self.historical_data.get(symbol, [])
+            logger.info(f"   📊 Historical data: {len(historical_data)} bars")
             
-            # Generate ML signal
+            # Generate ML signal (Pine Script logic - no minimum data requirement)
+            logger.info(f"   🧠 Generating ML signal...")
             signal_data = self.classifier.generate_signal(ohlc_data, historical_data)
             
             if not signal_data:
