@@ -6,7 +6,7 @@ XAUUSDm:  # GOLD - ATR: 80 pips, Max SL: 160 pips (2x ATR)
   enabled: true
   allow_weekend: false  # Gold doesn't trade on weekends
   min_confidence: 0.4
-  max_spread_pips: 8.0
+  max_spread_pips: 20.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 160 pips max SL
   tp_multiplier: 3.0
@@ -19,7 +19,7 @@ BTCUSDm:  # BTCUSD - ATR: 200 pips, Max SL: 400 pips (2x ATR)
   enabled: true
   allow_weekend: true  # Crypto trades on weekends
   min_confidence: 0.4
-  max_spread_pips: 15.0
+  max_spread_pips: 50.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 400 pips max SL
   tp_multiplier: 3.0
@@ -32,7 +32,7 @@ USOILm:  # USOIL - ATR: 50 pips, Max SL: 100 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.4
-  max_spread_pips: 6.0
+  max_spread_pips: 15.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 100 pips max SL
   tp_multiplier: 3.0
@@ -46,7 +46,7 @@ USTECm:  # NAS 100 - ATR: 25 pips, Max SL: 50 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.4
-  max_spread_pips: 4.0
+  max_spread_pips: 8.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 50 pips max SL
   tp_multiplier: 3.0
@@ -59,7 +59,7 @@ US500m:  # SPX 500 - ATR: 20 pips, Max SL: 40 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.4
-  max_spread_pips: 3.0
+  max_spread_pips: 6.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 40 pips max SL
   tp_multiplier: 3.0
@@ -72,7 +72,7 @@ US30m:  # US 30 - ATR: 30 pips, Max SL: 60 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.4
-  max_spread_pips: 4.0
+  max_spread_pips: 8.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 60 pips max SL
   tp_multiplier: 3.0
@@ -86,7 +86,7 @@ EURUSDm:  # EURUSD - ATR: 10 pips, Max SL: 20 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.3
-  max_spread_pips: 2.0
+  max_spread_pips: 4.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 20 pips max SL
   tp_multiplier: 3.0
@@ -99,7 +99,7 @@ GBPUSDm:  # GBPUSD - ATR: 12 pips, Max SL: 24 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.35
-  max_spread_pips: 3.0
+  max_spread_pips: 5.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 24 pips max SL
   tp_multiplier: 3.0
@@ -112,7 +112,7 @@ USDJPYm:  # USDJPY - ATR: 8 pips, Max SL: 16 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.3
-  max_spread_pips: 2.5
+  max_spread_pips: 3.5  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 16 pips max SL
   tp_multiplier: 3.0
@@ -125,7 +125,7 @@ AUDUSDm:  # AUDUSD - ATR: 9 pips, Max SL: 18 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.3
-  max_spread_pips: 3.0
+  max_spread_pips: 4.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 18 pips max SL
   tp_multiplier: 3.0
@@ -138,7 +138,7 @@ USDCADm:  # USDCAD - ATR: 10 pips, Max SL: 20 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.3
-  max_spread_pips: 3.0
+  max_spread_pips: 4.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 20 pips max SL
   tp_multiplier: 3.0
@@ -151,7 +151,7 @@ USDCHFm:  # USDCHF - ATR: 8 pips, Max SL: 16 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.3
-  max_spread_pips: 3.0
+  max_spread_pips: 3.5  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 16 pips max SL
   tp_multiplier: 3.0
@@ -164,7 +164,7 @@ NZDUSDm:  # NZDUSD - ATR: 8 pips, Max SL: 16 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.35
-  max_spread_pips: 4.0
+  max_spread_pips: 4.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 16 pips max SL
   tp_multiplier: 3.0
@@ -178,7 +178,7 @@ EURJPYm:  # EURJPY - ATR: 12 pips, Max SL: 24 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.35
-  max_spread_pips: 3.5
+  max_spread_pips: 5.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 24 pips max SL
   tp_multiplier: 3.0
@@ -191,7 +191,7 @@ GBPJPYm:  # GBPJPY - ATR: 15 pips, Max SL: 30 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.4
-  max_spread_pips: 4.0
+  max_spread_pips: 6.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 30 pips max SL
   tp_multiplier: 3.0
@@ -204,7 +204,7 @@ CADJPYm:  # CADJPY - ATR: 10 pips, Max SL: 20 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.35
-  max_spread_pips: 4.0
+  max_spread_pips: 4.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 20 pips max SL
   tp_multiplier: 3.0
@@ -217,7 +217,7 @@ EURAUDm:  # EURAUD - ATR: 12 pips, Max SL: 24 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.35
-  max_spread_pips: 4.0
+  max_spread_pips: 5.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 24 pips max SL
   tp_multiplier: 3.0
@@ -230,7 +230,7 @@ EURGBPm:  # EURGBP - ATR: 10 pips, Max SL: 20 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.3
-  max_spread_pips: 2.5
+  max_spread_pips: 4.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 20 pips max SL
   tp_multiplier: 3.0
@@ -243,7 +243,7 @@ GBPCHFm:  # GBPCHF - ATR: 14 pips, Max SL: 28 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.4
-  max_spread_pips: 4.0
+  max_spread_pips: 5.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 28 pips max SL
   tp_multiplier: 3.0
@@ -256,7 +256,7 @@ GBPNZDm:  # GBPNZD - ATR: 18 pips, Max SL: 36 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.4
-  max_spread_pips: 5.0
+  max_spread_pips: 7.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 36 pips max SL
   tp_multiplier: 3.0
@@ -269,7 +269,7 @@ EURNZDm:  # EURNZD - ATR: 15 pips, Max SL: 30 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.4
-  max_spread_pips: 5.0
+  max_spread_pips: 6.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 30 pips max SL
   tp_multiplier: 3.0
@@ -282,7 +282,7 @@ AUDCHFm:  # AUDCHF - ATR: 12 pips, Max SL: 24 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.35
-  max_spread_pips: 4.0
+  max_spread_pips: 5.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 24 pips max SL
   tp_multiplier: 3.0
@@ -295,7 +295,7 @@ AUDCADm:  # AUDCAD - ATR: 10 pips, Max SL: 20 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.35
-  max_spread_pips: 4.0
+  max_spread_pips: 4.0  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 20 pips max SL
   tp_multiplier: 3.0
@@ -308,7 +308,7 @@ EURCHFm:  # EURCHF - ATR: 8 pips, Max SL: 16 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.3
-  max_spread_pips: 3.0
+  max_spread_pips: 3.5  # Adjusted for ATR-based SL
   atr_period: 14
   sl_multiplier: 2.0  # 2x ATR = 16 pips max SL
   tp_multiplier: 3.0
