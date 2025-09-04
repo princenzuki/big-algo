@@ -156,8 +156,11 @@ class MT5Adapter(BrokerAdapter):
             original_lot_size = request.lot_size
             rounded_lot_size = self.round_lot_size(request.lot_size, request.symbol)
             
+            # Check and adjust stop levels to meet broker minimum distance requirements
+            adjusted_request = self._adjust_stop_levels(request, symbol_info)
+            
             # Validate request with rounded lot size
-            request_copy = request
+            request_copy = adjusted_request
             request_copy.lot_size = rounded_lot_size
             is_valid, error_msg = self.validate_order_request(request_copy)
             if not is_valid:
@@ -196,22 +199,22 @@ class MT5Adapter(BrokerAdapter):
             # Prepare order structure
             order_request = {
                 "action": mt5.TRADE_ACTION_DEAL,
-                "symbol": request.symbol,
+                "symbol": adjusted_request.symbol,
                 "volume": rounded_lot_size,
                 "type": order_type,
-                "price": request.price,
+                "price": adjusted_request.price,
                 "deviation": 20,  # 20 points deviation allowed
                 "magic": 12345,   # Magic number for identification
-                "comment": request.comment,
+                "comment": adjusted_request.comment,
                 "type_time": mt5.ORDER_TIME_GTC,
                 "type_filling": mt5.ORDER_FILLING_IOC,
             }
             
             # Add stop loss and take profit if specified
-            if request.stop_loss:
-                order_request["sl"] = request.stop_loss
-            if request.take_profit:
-                order_request["tp"] = request.take_profit
+            if adjusted_request.stop_loss:
+                order_request["sl"] = adjusted_request.stop_loss
+            if adjusted_request.take_profit:
+                order_request["tp"] = adjusted_request.take_profit
             
             # Send order
             result = mt5.order_send(order_request)
@@ -461,3 +464,70 @@ class MT5Adapter(BrokerAdapter):
         """Clear deviation history"""
         self.deviations.clear()
         logger.info("Deviation history cleared")
+    
+    def _adjust_stop_levels(self, request, symbol_info) -> 'OrderRequest':
+        """
+        Adjust stop loss and take profit levels to meet broker minimum distance requirements
+        
+        Args:
+            request: Original order request
+            symbol_info: MT5 symbol information
+            
+        Returns:
+            Adjusted order request with valid stop levels
+        """
+        from adapters.broker_base import OrderRequest
+        
+        # Create a copy of the request
+        adjusted_request = OrderRequest(
+            symbol=request.symbol,
+            order_type=request.order_type,
+            lot_size=request.lot_size,
+            price=request.price,
+            stop_loss=request.stop_loss,
+            take_profit=request.take_profit,
+            comment=request.comment
+        )
+        
+        # Get minimum stop level from symbol info
+        min_stop_level = symbol_info.trade_stops_level
+        point = symbol_info.point
+        
+        if min_stop_level <= 0:
+            # No minimum stop level requirement
+            return adjusted_request
+        
+        # Calculate minimum distance in price units
+        min_distance = min_stop_level * point
+        
+        # Adjust stop loss if needed
+        if adjusted_request.stop_loss:
+            if adjusted_request.order_type == 'buy':
+                # For buy orders, SL should be below entry price
+                min_sl = adjusted_request.price - min_distance
+                if adjusted_request.stop_loss > min_sl:
+                    adjusted_request.stop_loss = min_sl
+                    logger.info(f"[STOP_ADJUST] SL adjusted for {request.symbol}: {request.stop_loss:.5f} -> {min_sl:.5f} (min distance: {min_stop_level} points)")
+            else:
+                # For sell orders, SL should be above entry price
+                max_sl = adjusted_request.price + min_distance
+                if adjusted_request.stop_loss < max_sl:
+                    adjusted_request.stop_loss = max_sl
+                    logger.info(f"[STOP_ADJUST] SL adjusted for {request.symbol}: {request.stop_loss:.5f} -> {max_sl:.5f} (min distance: {min_stop_level} points)")
+        
+        # Adjust take profit if needed
+        if adjusted_request.take_profit:
+            if adjusted_request.order_type == 'buy':
+                # For buy orders, TP should be above entry price
+                min_tp = adjusted_request.price + min_distance
+                if adjusted_request.take_profit < min_tp:
+                    adjusted_request.take_profit = min_tp
+                    logger.info(f"[STOP_ADJUST] TP adjusted for {request.symbol}: {request.take_profit:.5f} -> {min_tp:.5f} (min distance: {min_stop_level} points)")
+            else:
+                # For sell orders, TP should be below entry price
+                max_tp = adjusted_request.price - min_distance
+                if adjusted_request.take_profit > max_tp:
+                    adjusted_request.take_profit = max_tp
+                    logger.info(f"[STOP_ADJUST] TP adjusted for {request.symbol}: {request.take_profit:.5f} -> {max_tp:.5f} (min distance: {min_stop_level} points)")
+        
+        return adjusted_request
