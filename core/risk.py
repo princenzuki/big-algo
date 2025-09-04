@@ -90,6 +90,36 @@ def get_intelligent_sl(symbol_data: List[Dict], atr_multiplier: float = 2.0) -> 
     return atr_sl
 
 
+@dataclass
+class RiskSettings:
+    """Risk management configuration"""
+    max_account_risk_percent: float = 10.0  # 10% max risk
+    min_lot_size: float = 0.01
+    max_concurrent_trades: int = 5
+    cooldown_minutes: int = 10
+    max_spread_pips: float = 3.0
+    min_stop_distance_pips: float = 5.0
+
+@dataclass
+class Position:
+    """Individual position tracking"""
+    symbol: str
+    side: str  # 'buy' or 'sell'
+    entry_price: float
+    lot_size: float
+    stop_loss: float
+    take_profit: float
+    confidence: float
+    risk_amount: float
+    opened_at: datetime
+    status: str = 'open'  # 'open', 'closed', 'stopped'
+    # Trailing stop fields
+    original_stop_loss: float = 0.0
+    trailing_enabled: bool = False
+    best_price: float = 0.0
+    atr_distance: float = 0.0
+
+
 def calculate_trailing_stop(position: Position, current_price: float, current_atr: float, 
                           historical_data: List[Dict]) -> Tuple[float, bool, str]:
     """
@@ -177,35 +207,6 @@ def calculate_trailing_stop(position: Position, current_price: float, current_at
     
     return position.stop_loss, updated, log_message
 
-
-@dataclass
-class RiskSettings:
-    """Risk management configuration"""
-    max_account_risk_percent: float = 10.0  # 10% max risk
-    min_lot_size: float = 0.01
-    max_concurrent_trades: int = 5
-    cooldown_minutes: int = 10
-    max_spread_pips: float = 3.0
-    min_stop_distance_pips: float = 5.0
-
-@dataclass
-class Position:
-    """Individual position tracking"""
-    symbol: str
-    side: str  # 'buy' or 'sell'
-    entry_price: float
-    lot_size: float
-    stop_loss: float
-    take_profit: float
-    confidence: float
-    risk_amount: float
-    opened_at: datetime
-    status: str = 'open'  # 'open', 'closed', 'stopped'
-    # Trailing stop fields
-    original_stop_loss: float = 0.0
-    trailing_enabled: bool = False
-    best_price: float = 0.0
-    atr_distance: float = 0.0
 
 @dataclass
 class AccountInfo:
