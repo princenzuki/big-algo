@@ -84,12 +84,12 @@ class SessionManager:
         # Check if it's weekend block period
         if current_weekday == 4:  # Friday
             if current_time_only >= self.weekend_start:
-                return True, "WEEKEND_BLOCK_FRIDAY"
+                return True, f"WEEKEND_BLOCK (Friday {current_time_only.strftime('%H:%M')} >= {self.weekend_start.strftime('%H:%M')})"
         elif current_weekday == 5:  # Saturday
-            return True, "WEEKEND_BLOCK_SATURDAY"
+            return True, f"WEEKEND_BLOCK (Saturday {current_time_only.strftime('%H:%M')})"
         elif current_weekday == 6:  # Sunday
             if current_time_only <= self.weekend_end:
-                return True, "WEEKEND_BLOCK_SUNDAY"
+                return True, f"WEEKEND_BLOCK (Sunday {current_time_only.strftime('%H:%M')} <= {self.weekend_end.strftime('%H:%M')})"
         
         return False, "OK"
     

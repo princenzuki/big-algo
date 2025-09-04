@@ -191,38 +191,67 @@ class LorentzianTradingBot:
             # Process each enabled symbol
             enabled_symbols = settings_manager.get_enabled_symbols()
             
+            # Initialize cycle tracking
+            cycle_stats = {
+                'signals_processed': 0,
+                'trades_executed': 0,
+                'trades_skipped': 0,
+                'skip_reasons': {}
+            }
+            
+            logger.info(f"🔄 Starting trading cycle - Processing {len(enabled_symbols)} symbols")
+            
             for symbol in enabled_symbols:
                 try:
-                    await self._process_symbol(symbol)
+                    result = await self._process_symbol(symbol, cycle_stats)
                 except Exception as e:
                     logger.error(f"Error processing {symbol}: {e}")
                     self.errors_count += 1
             
-            # Log cycle completion
-            logger.info(f"Trading cycle completed. Signals processed: {self.signals_processed}")
+            # Log cycle completion with detailed stats
+            logger.info(f"📊 Trading cycle completed:")
+            logger.info(f"   • Signals processed: {cycle_stats['signals_processed']}")
+            logger.info(f"   • Trades executed: {cycle_stats['trades_executed']}")
+            logger.info(f"   • Trades skipped: {cycle_stats['trades_skipped']}")
+            
+            if cycle_stats['skip_reasons']:
+                logger.info(f"   • Skip reasons:")
+                for reason, count in cycle_stats['skip_reasons'].items():
+                    logger.info(f"     - {reason}: {count}")
+            
+            self.signals_processed += cycle_stats['signals_processed']
             
         except Exception as e:
             logger.error(f"Error in trading cycle: {e}")
             self.errors_count += 1
     
-    async def _process_symbol(self, symbol: str):
-        """Process a single symbol"""
+    async def _process_symbol(self, symbol: str, cycle_stats: Dict):
+        """Process a single symbol with detailed logging"""
         try:
+            logger.info(f"📊 Analyzing {symbol}...")
+            
             # Check if symbol can be traded
             can_trade, reason = self.session_manager.can_trade_symbol(symbol)
             if not can_trade:
-                logger.debug(f"Cannot trade {symbol}: {reason}")
+                logger.info(f"   ⏸️  SKIPPED: {reason}")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons'][reason] = cycle_stats['skip_reasons'].get(reason, 0) + 1
                 return
             
             # Get symbol configuration
             symbol_config = self.symbol_configs.get(symbol, {})
             if not symbol_config.get('enabled', True):
+                logger.info(f"   ⏸️  SKIPPED: Symbol disabled in configuration")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons']['Symbol disabled'] = cycle_stats['skip_reasons'].get('Symbol disabled', 0) + 1
                 return
             
             # Get current rates
             current_rates = self.broker_adapter.get_current_rates([symbol])
             if symbol not in current_rates:
-                logger.warning(f"No current rates available for {symbol}")
+                logger.info(f"   ⏸️  SKIPPED: No current rates available")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons']['No current rates'] = cycle_stats['skip_reasons'].get('No current rates', 0) + 1
                 return
             
             current_rate = current_rates[symbol]
@@ -242,40 +271,65 @@ class LorentzianTradingBot:
             signal_data = self.classifier.generate_signal(ohlc_data, historical_data)
             
             if not signal_data:
+                logger.info(f"   ⏸️  SKIPPED: No signal generated")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons']['No signal'] = cycle_stats['skip_reasons'].get('No signal', 0) + 1
                 return
             
-            self.signals_processed += 1
+            cycle_stats['signals_processed'] += 1
+            signal = signal_data.get('signal', 'NEUTRAL')
+            confidence = signal_data.get('confidence', 0.0)
+            
+            logger.info(f"   🎯 Signal: {signal} | Confidence: {confidence:.3f}")
             
             # Check confidence threshold
             min_confidence = symbol_config.get('min_confidence', 0.3)
-            if signal_data['confidence'] < min_confidence:
-                logger.debug(f"Signal confidence too low for {symbol}: {signal_data['confidence']:.3f}")
+            if confidence < min_confidence:
+                logger.info(f"   ⏸️  SKIPPED: Confidence too low ({confidence:.3f} < {min_confidence:.3f})")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons']['Low confidence'] = cycle_stats['skip_reasons'].get('Low confidence', 0) + 1
+                return
+            
+            # Check if signal is neutral
+            if signal == 'NEUTRAL':
+                logger.info(f"   ⏸️  SKIPPED: Neutral signal")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons']['Neutral signal'] = cycle_stats['skip_reasons'].get('Neutral signal', 0) + 1
                 return
             
             # Check spread
             symbol_info = self.broker_adapter.get_symbol_info(symbol)
             if not symbol_info:
+                logger.info(f"   ⏸️  SKIPPED: No symbol info available")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons']['No symbol info'] = cycle_stats['skip_reasons'].get('No symbol info', 0) + 1
                 return
             
             spread_pips = self.broker_adapter.calculate_spread_pips(symbol)
             max_spread = symbol_config.get('max_spread_pips', 3.0)
             
+            logger.info(f"   📏 Spread: {spread_pips:.1f} pips (max: {max_spread:.1f})")
+            
             if spread_pips > max_spread:
-                logger.debug(f"Spread too wide for {symbol}: {spread_pips:.1f} pips")
+                logger.info(f"   ⏸️  SKIPPED: Spread too wide ({spread_pips:.1f} > {max_spread:.1f} pips)")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons']['Spread too wide'] = cycle_stats['skip_reasons'].get('Spread too wide', 0) + 1
                 return
             
             # Process signal
-            await self._process_signal(symbol, signal_data, symbol_info, symbol_config)
+            await self._process_signal(symbol, signal_data, symbol_info, symbol_config, cycle_stats)
             
         except Exception as e:
             logger.error(f"Error processing symbol {symbol}: {e}")
             self.errors_count += 1
     
-    async def _process_signal(self, symbol: str, signal_data: Dict, symbol_info, symbol_config: Dict):
-        """Process a trading signal"""
+    async def _process_signal(self, symbol: str, signal_data: Dict, symbol_info, symbol_config: Dict, cycle_stats: Dict):
+        """Process a trading signal with detailed logging"""
         try:
             signal = signal_data['signal']
             confidence = signal_data['confidence']
+            
+            logger.info(f"   🔍 Processing {signal} signal for {symbol}...")
             
             if signal == 0:  # Neutral signal
                 return
@@ -304,7 +358,9 @@ class LorentzianTradingBot:
             # Check if we can open a position
             can_open, reason = self.risk_manager.can_open_position(symbol, symbol_info.spread)
             if not can_open:
-                logger.debug(f"Cannot open position for {symbol}: {reason}")
+                logger.info(f"   ⏸️  SKIPPED: {reason}")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons'][reason] = cycle_stats['skip_reasons'].get(reason, 0) + 1
                 return
             
             # Calculate position size
@@ -312,8 +368,12 @@ class LorentzianTradingBot:
                 symbol, entry_price, stop_loss, confidence
             )
             
+            logger.info(f"   💰 Position size: {lot_size:.2f} lots | Risk: ${risk_amount:.2f}")
+            
             if lot_size <= 0:
-                logger.debug(f"Invalid lot size for {symbol}: {lot_size}")
+                logger.info(f"   ⏸️  SKIPPED: Invalid lot size ({lot_size:.2f})")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons']['Invalid lot size'] = cycle_stats['skip_reasons'].get('Invalid lot size', 0) + 1
                 return
             
             # Place order
@@ -327,6 +387,9 @@ class LorentzianTradingBot:
                 take_profit=take_profit,
                 comment="Lorentzian ML"
             )
+            
+            logger.info(f"   📤 Placing {side} order: {lot_size:.2f} lots @ {entry_price:.5f}")
+            logger.info(f"   🛡️  Stop Loss: {stop_loss:.5f} | Take Profit: {take_profit:.5f}")
             
             order_result = self.broker_adapter.place_order(order_request)
             
@@ -343,7 +406,11 @@ class LorentzianTradingBot:
                     risk_amount=risk_amount
                 )
                 
-                logger.info(f"Position opened: {symbol} {side} {lot_size} lots @ {entry_price}")
+                logger.info(f"   ✅ TRADE EXECUTED: {symbol} {side.upper()} {lot_size:.2f} lots @ {entry_price:.5f}")
+                logger.info(f"   📊 Confidence: {confidence:.3f} | Risk: ${risk_amount:.2f}")
+                logger.info(f"   🎯 SL: {stop_loss:.5f} | TP: {take_profit:.5f}")
+                
+                cycle_stats['trades_executed'] += 1
                 
                 # Update risk manager
                 self.risk_manager.open_position(
@@ -357,7 +424,9 @@ class LorentzianTradingBot:
                 )
                 
             else:
-                logger.warning(f"Failed to place order for {symbol}: {order_result.error_message}")
+                logger.info(f"   ❌ ORDER FAILED: {order_result.error_message}")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons']['Order failed'] = cycle_stats['skip_reasons'].get('Order failed', 0) + 1
                 
         except Exception as e:
             logger.error(f"Error processing signal for {symbol}: {e}")
