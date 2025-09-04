@@ -27,7 +27,7 @@ def get_dynamic_spread(symbol_data: List[Dict], base_min_spread: float, spread_m
     Calculate intelligent spread per symbol based on recent market conditions.
     
     Args:
-        symbol_data: List of dicts with 'ask' and 'bid' columns
+        symbol_data: List of dicts with 'high', 'low', 'open', 'close' columns
         base_min_spread: float, minimum allowed spread in pips
         spread_multiplier: float, multiplies average spread for breathing room
 
@@ -40,11 +40,12 @@ def get_dynamic_spread(symbol_data: List[Dict], base_min_spread: float, spread_m
     # Convert to DataFrame for easier calculation
     df = pd.DataFrame(symbol_data)
     
-    # Compute recent spread in pips (assuming 4-digit forex pairs)
-    df['spread'] = (df['ask'] - df['bid']) * 10000
+    # Estimate spread from high-low range (proxy for volatility)
+    # This is a reasonable approximation since we don't have actual bid/ask data
+    df['estimated_spread'] = (df['high'] - df['low']) * 10000  # Convert to pips
     
     # Calculate rolling average of last 20 bars
-    recent_avg = df['spread'].rolling(window=20).mean().iloc[-1]
+    recent_avg = df['estimated_spread'].rolling(window=20).mean().iloc[-1]
     
     # Return max of base minimum or calculated dynamic spread
     max_allowed_spread = max(base_min_spread, recent_avg * spread_multiplier)
