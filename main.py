@@ -140,7 +140,8 @@ class LorentzianTradingBot:
         for symbol in enabled_symbols:
             try:
                 # Get historical rates (last 1000 bars) - using 5-minute timeframe to match Pine Script
-                timeframe = settings_manager.get_all_settings().trading_timeframe
+                settings = settings_manager.get_all_settings()
+                timeframe = settings['global']['trading_timeframe']
                 rates = self.broker_adapter.get_rates(symbol, timeframe, 1000)
                 
                 if rates:

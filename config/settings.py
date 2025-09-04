@@ -290,6 +290,7 @@ class SettingsManager:
                 'timezone': self.global_settings.timezone,
                 'loop_interval_minutes': self.global_settings.loop_interval_minutes,
                 'cooldown_minutes': self.global_settings.cooldown_minutes,
+                'trading_timeframe': self.global_settings.trading_timeframe,
                 'max_account_risk_percent': self.global_settings.max_account_risk_percent,
                 'min_lot_size': self.global_settings.min_lot_size,
                 'max_concurrent_trades': self.global_settings.max_concurrent_trades,
