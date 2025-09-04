@@ -380,16 +380,28 @@ class LorentzianTradingBot:
             current_spread_pips = self.broker_adapter.calculate_spread_pips(symbol)
             stop_loss_pips = current_spread_pips + 10  # Spread + 10 pips buffer
             
-            # Get symbol point value for accurate price calculation
-            symbol_point = self.broker_adapter.get_symbol_point(symbol)
-            stop_loss_price_distance = stop_loss_pips * symbol_point
+            # Get symbol info for accurate pip-to-price conversion
+            symbol_info_mt5 = self.broker_adapter.get_symbol_info(symbol)
+            if not symbol_info_mt5:
+                logger.error(f"Could not get symbol info for {symbol}")
+                return
+            
+            # Calculate pip value in price units
+            # For most pairs: 1 pip = 0.0001 (4-digit) or 0.00001 (5-digit)
+            # But we need to account for JPY pairs where 1 pip = 0.01
+            if 'JPY' in symbol:
+                pip_value = 0.01  # JPY pairs: 1 pip = 0.01
+            else:
+                pip_value = 0.0001  # Most pairs: 1 pip = 0.0001
+            
+            stop_loss_price_distance = stop_loss_pips * pip_value
             
             # Calculate take profit (use ATR-based for TP to maintain R:R ratio)
             atr_period = symbol_config.get('atr_period', 14)
             tp_multiplier = symbol_config.get('tp_multiplier', 3.0)
             historical_data = self.historical_data.get(symbol, [])
             atr_tp_distance = get_intelligent_sl(historical_data, atr_multiplier=tp_multiplier)
-            tp_price_distance = atr_tp_distance / 10000  # Convert pips to price
+            tp_price_distance = atr_tp_distance * pip_value  # Convert pips to price using same pip value
             
             if side == 'buy':
                 stop_loss = entry_price - stop_loss_price_distance
@@ -399,6 +411,7 @@ class LorentzianTradingBot:
                 take_profit = entry_price - tp_price_distance
             
             logger.info(f"   [STOP] Spread: {current_spread_pips:.1f} pips, SL distance: {stop_loss_pips:.1f} pips")
+            logger.info(f"   [CALC] Pip value: {pip_value:.5f}, Price distance: {stop_loss_price_distance:.5f}")
             
             # Check if we can open a position
             can_open, reason = self.risk_manager.can_open_position(symbol, symbol_info.spread)
