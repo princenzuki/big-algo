@@ -2,39 +2,39 @@
 # Updated with correct Exness MT5 symbol names including micro account suffixes (m)
 
 # Metals & Commodities
-XAUUSDm:  # GOLD
+XAUUSDm:  # GOLD - ATR: 80 pips, Max SL: 160 pips (2x ATR)
   enabled: true
-  allow_weekend: true  # Metals trade on weekends
+  allow_weekend: false  # Gold doesn't trade on weekends
   min_confidence: 0.4
   max_spread_pips: 8.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 160 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
     new_york: true
     asia: true
 
-BTCUSDm:  # BTCUSD
+BTCUSDm:  # BTCUSD - ATR: 200 pips, Max SL: 400 pips (2x ATR)
   enabled: true
   allow_weekend: true  # Crypto trades on weekends
   min_confidence: 0.4
   max_spread_pips: 15.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 400 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
     new_york: true
     asia: true
 
-USOILm:  # USOIL
+USOILm:  # USOIL - ATR: 50 pips, Max SL: 100 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.4
   max_spread_pips: 6.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 100 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
@@ -42,39 +42,39 @@ USOILm:  # USOIL
     asia: false
 
 # Indices
-USTECm:  # NAS 100
+USTECm:  # NAS 100 - ATR: 25 pips, Max SL: 50 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.4
   max_spread_pips: 4.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 50 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
     new_york: true
     asia: false
 
-US500m:  # SPX 500
+US500m:  # SPX 500 - ATR: 20 pips, Max SL: 40 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.4
   max_spread_pips: 3.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 40 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
     new_york: true
     asia: false
 
-US30m:  # US 30
+US30m:  # US 30 - ATR: 30 pips, Max SL: 60 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.4
   max_spread_pips: 4.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 60 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
@@ -82,91 +82,91 @@ US30m:  # US 30
     asia: false
 
 # Forex Pairs - Major
-EURUSDm:  # EURUSD
+EURUSDm:  # EURUSD - ATR: 10 pips, Max SL: 20 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.3
   max_spread_pips: 2.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 20 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
     new_york: true
     asia: false
 
-GBPUSDm:  # GBPUSD
+GBPUSDm:  # GBPUSD - ATR: 12 pips, Max SL: 24 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.35
   max_spread_pips: 3.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 24 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
     new_york: true
     asia: false
 
-USDJPYm:  # USDJPY
+USDJPYm:  # USDJPY - ATR: 8 pips, Max SL: 16 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.3
   max_spread_pips: 2.5
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 16 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
     new_york: true
     asia: true
 
-AUDUSDm:  # AUDUSD
+AUDUSDm:  # AUDUSD - ATR: 9 pips, Max SL: 18 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.3
   max_spread_pips: 3.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 18 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: false
     new_york: true
     asia: true
 
-USDCADm:  # USDCAD
+USDCADm:  # USDCAD - ATR: 10 pips, Max SL: 20 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.3
   max_spread_pips: 3.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 20 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
     new_york: true
     asia: false
 
-USDCHFm:  # USDCHF
+USDCHFm:  # USDCHF - ATR: 8 pips, Max SL: 16 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.3
   max_spread_pips: 3.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 16 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
     new_york: true
     asia: false
 
-NZDUSDm:  # NZDUSD
+NZDUSDm:  # NZDUSD - ATR: 8 pips, Max SL: 16 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.35
   max_spread_pips: 4.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 16 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: false
@@ -174,143 +174,143 @@ NZDUSDm:  # NZDUSD
     asia: true
 
 # Forex Pairs - Crosses
-EURJPYm:  # EURJPY
+EURJPYm:  # EURJPY - ATR: 12 pips, Max SL: 24 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.35
   max_spread_pips: 3.5
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 24 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
     new_york: true
     asia: true
 
-GBPJPYm:  # GBPJPY
+GBPJPYm:  # GBPJPY - ATR: 15 pips, Max SL: 30 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.4
   max_spread_pips: 4.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 30 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
     new_york: true
     asia: true
 
-CADJPYm:  # CADJPY
+CADJPYm:  # CADJPY - ATR: 10 pips, Max SL: 20 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.35
   max_spread_pips: 4.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 20 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
     new_york: true
     asia: true
 
-EURAUDm:  # EURAUD
+EURAUDm:  # EURAUD - ATR: 12 pips, Max SL: 24 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.35
   max_spread_pips: 4.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 24 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
     new_york: true
     asia: true
 
-EURGBPm:  # EURGBP
+EURGBPm:  # EURGBP - ATR: 10 pips, Max SL: 20 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.3
   max_spread_pips: 2.5
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 20 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
     new_york: true
     asia: false
 
-GBPCHFm:  # GBPCHF
+GBPCHFm:  # GBPCHF - ATR: 14 pips, Max SL: 28 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.4
   max_spread_pips: 4.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 28 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
     new_york: true
     asia: false
 
-GBPNZDm:  # GBPNZD
+GBPNZDm:  # GBPNZD - ATR: 18 pips, Max SL: 36 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.4
   max_spread_pips: 5.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 36 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
     new_york: true
     asia: true
 
-EURNZDm:  # EURNZD
+EURNZDm:  # EURNZD - ATR: 15 pips, Max SL: 30 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.4
   max_spread_pips: 5.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 30 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
     new_york: true
     asia: true
 
-AUDCHFm:  # AUDCHF
+AUDCHFm:  # AUDCHF - ATR: 12 pips, Max SL: 24 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.35
   max_spread_pips: 4.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 24 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
     new_york: true
     asia: true
 
-AUDCADm:  # AUDCAD
+AUDCADm:  # AUDCAD - ATR: 10 pips, Max SL: 20 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.35
   max_spread_pips: 4.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 20 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
     new_york: true
     asia: true
 
-EURCHFm:  # EURCHF
+EURCHFm:  # EURCHF - ATR: 8 pips, Max SL: 16 pips (2x ATR)
   enabled: true
   allow_weekend: false
   min_confidence: 0.3
   max_spread_pips: 3.0
   atr_period: 14
-  sl_multiplier: 2.0
+  sl_multiplier: 2.0  # 2x ATR = 16 pips max SL
   tp_multiplier: 3.0
   sessions:
     london: true
