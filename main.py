@@ -351,11 +351,17 @@ class LorentzianTradingBot:
                     historical_data = self.historical_data.get(position.symbol, [])
                     
                     # Update position with trailing stop logic
-                    self.risk_manager.update_position_prices(
+                    update_result = self.risk_manager.update_position_prices(
                         position.symbol, 
                         current_price, 
                         historical_data
                     )
+                    
+                    # ✅ Break-even Logic Validation
+                    if update_result is False:
+                        logger.warning(f"⚠️ Break-even update failed for {position.symbol}")
+                    else:
+                        logger.debug(f"✅ Break-even update success for {position.symbol}")
                     
                     # Check Smart Take Profit conditions
                     await self._check_smart_tp(position.symbol, current_price, historical_data)
@@ -371,16 +377,21 @@ class LorentzianTradingBot:
         try:
             # Check if partial TP should be taken
             if self.smart_tp.check_partial_tp(symbol, current_price):
+                logger.info(f"✅ Partial TP triggered for {symbol} at {current_price:.5f}")
                 await self._take_partial_profit(symbol, current_price)
+            else:
+                logger.debug(f"✅ Partial TP check passed for {symbol}")
             
             # Update trailing TP for remaining position
             new_trailing_tp = self.smart_tp.update_trailing_tp(symbol, current_price, historical_data)
             if new_trailing_tp:
-                logger.info(f"[SMART_TP] Trailing TP updated for {symbol}: {new_trailing_tp:.5f}")
+                logger.info(f"✅ Trailing TP updated for {symbol}: {new_trailing_tp:.5f}")
                 # Here you would update the TP in MT5 if needed
+            else:
+                logger.debug(f"✅ Trailing TP check passed for {symbol}")
                 
         except Exception as e:
-            logger.error(f"Error in Smart TP check for {symbol}: {e}")
+            logger.error(f"❌ Error in Smart TP check for {symbol}: {e}")
     
     async def _take_partial_profit(self, symbol: str, current_price: float):
         """Take partial profit at the partial TP level"""
@@ -405,6 +416,16 @@ class LorentzianTradingBot:
         try:
             signal = signal_data['signal']
             confidence = signal_data['confidence']
+            
+            # ✅ ML Signal Validation
+            if signal is None or not isinstance(signal, (int, float)) or signal not in [-1, 0, 1]:
+                logger.error(f"❌ Invalid signal generated: {signal}")
+                return
+            if confidence is None or not isinstance(confidence, (int, float)) or not (0 <= confidence <= 1):
+                logger.error(f"❌ Invalid confidence: {confidence}")
+                return
+            
+            logger.info(f"✅ Signal generated: {signal}, confidence: {confidence:.3f}")
             
             logger.info(f"   [PROCESS] Processing {signal} signal for {symbol}...")
             
@@ -440,11 +461,41 @@ class LorentzianTradingBot:
             # Calculate Smart Take Profit
             historical_data = self.historical_data.get(symbol, [])
             
+            # ✅ Data Validation
+            if not historical_data or len(historical_data) < 20:
+                logger.error(f"❌ Insufficient historical data for {symbol}: {len(historical_data) if historical_data else 0} bars")
+                return
+            
+            # Check for NaN values in OHLC data
+            import pandas as pd
+            df_check = pd.DataFrame(historical_data)
+            if df_check[['open', 'high', 'low', 'close']].isnull().any().any():
+                logger.error(f"❌ NaN values found in historical data for {symbol}")
+                return
+            
+            logger.info(f"✅ Data validated: {len(historical_data)} bars, no NaNs")
+            
             # First calculate stop loss
             if side == 'buy':
                 stop_loss = entry_price - stop_loss_price_distance
             else:
                 stop_loss = entry_price + stop_loss_price_distance
+            
+            # ✅ Stop Loss Validation
+            if stop_loss is None or stop_loss <= 0:
+                logger.error(f"❌ Invalid stop loss calculated: {stop_loss}")
+                return
+            
+            # Validate stop loss is on correct side of entry
+            if side == 'buy' and stop_loss >= entry_price:
+                logger.error(f"❌ Stop loss {stop_loss:.5f} not below entry {entry_price:.5f} for buy order")
+                return
+            elif side == 'sell' and stop_loss <= entry_price:
+                logger.error(f"❌ Stop loss {stop_loss:.5f} not above entry {entry_price:.5f} for sell order")
+                return
+            
+            stop_distance = abs(entry_price - stop_loss)
+            logger.info(f"✅ SL set: {stop_loss:.5f}, distance: {stop_distance:.5f}")
             
             # Calculate Smart Take Profit levels
             smart_tp_result = self.smart_tp.calculate_smart_tp(
@@ -457,6 +508,28 @@ class LorentzianTradingBot:
             
             # Use the full TP price for initial order
             take_profit = smart_tp_result.full_tp_price
+            
+            # ✅ Take Profit Validation
+            if take_profit is None or take_profit <= 0:
+                logger.error(f"❌ Invalid take profit calculated: {take_profit}")
+                return
+            
+            # Validate take profit is on correct side of entry
+            if side == 'buy' and take_profit <= entry_price:
+                logger.error(f"❌ Take profit {take_profit:.5f} not above entry {entry_price:.5f} for buy order")
+                return
+            elif side == 'sell' and take_profit >= entry_price:
+                logger.error(f"❌ Take profit {take_profit:.5f} not below entry {entry_price:.5f} for sell order")
+                return
+            
+            # Validate minimum RR (1:1)
+            tp_distance = abs(take_profit - entry_price)
+            if tp_distance < stop_distance:
+                logger.error(f"❌ Invalid RR: TP distance {tp_distance:.5f} < SL distance {stop_distance:.5f}")
+                return
+            
+            actual_rr = tp_distance / stop_distance if stop_distance > 0 else 0
+            logger.info(f"✅ TP validated: {take_profit:.5f}, distance: {tp_distance:.5f}, RR: {actual_rr:.2f}")
             
             # Register position for Smart TP tracking
             self.smart_tp.register_position(symbol, side, entry_price, smart_tp_result)
@@ -479,6 +552,13 @@ class LorentzianTradingBot:
             lot_size, risk_amount = self.risk_manager.calculate_position_size(
                 symbol, entry_price, stop_loss, confidence
             )
+            
+            # ✅ Lot Size Validation
+            if lot_size is None or lot_size <= 0:
+                logger.error(f"❌ Invalid lot size calculated: {lot_size}")
+                return
+            
+            logger.info(f"✅ Lot size calculated: {lot_size:.3f}, risk: ${risk_amount:.2f}")
             
             # Round lot size to broker's step size
             rounded_lot_size = self.broker_adapter.round_lot_size(lot_size, symbol)
@@ -517,7 +597,14 @@ class LorentzianTradingBot:
             
             order_result = self.broker_adapter.place_order(order_request)
             
+            # ✅ Trade Execution Validation
             if order_result.success:
+                if order_result.order_id is None:
+                    logger.error(f"❌ Order succeeded but no order ID returned")
+                    return
+                
+                logger.info(f"✅ MT5 order confirmed: ticket={order_result.order_id}, price={order_result.price:.5f}")
+                
                 # Create trade record
                 trade = self.portfolio_manager.open_trade(
                     symbol=symbol,
@@ -530,6 +617,11 @@ class LorentzianTradingBot:
                     risk_amount=risk_amount
                 )
                 
+                if trade is None:
+                    logger.error(f"❌ Failed to open trade in portfolio")
+                    return
+                
+                logger.info(f"✅ Trade opened: {trade.id}")
                 logger.info(f"   [EXECUTED] TRADE EXECUTED: {symbol} {side.upper()} {rounded_lot_size:.3f} lots @ {entry_price:.5f}")
                 logger.info(f"   [DETAILS] Confidence: {confidence:.3f} | Risk: ${risk_amount:.2f}")
                 logger.info(f"   [LEVELS] SL: {stop_loss:.5f} | TP: {take_profit:.5f}")

@@ -73,11 +73,15 @@ class SmartTakeProfit:
         
         # Calculate ATR baseline
         atr = self._calculate_atr(df)
+        logger.debug(f"Smart TP for {symbol}: ATR={atr:.6f}")
+        
         if atr <= 0:
+            logger.warning(f"⚠️ ATR calculation failed for {symbol}, using fallback TP")
             return self._fallback_tp(entry_price, side, stop_loss)
         
         # Calculate momentum indicators
         momentum_strength = self._calculate_momentum_strength(df)
+        logger.debug(f"Smart TP for {symbol}: Momentum={momentum_strength}")
         
         # Determine TP multiplier based on momentum
         if momentum_strength == 'strong':
@@ -89,6 +93,7 @@ class SmartTakeProfit:
         
         # Calculate TP distances
         tp_distance = atr * tp_multiplier
+        logger.debug(f"Smart TP for {symbol}: ATR={atr:.6f}, Multiplier={tp_multiplier}, Distance={tp_distance:.6f}")
         
         # Calculate partial and full TP prices
         if side == 'buy':
@@ -97,6 +102,31 @@ class SmartTakeProfit:
         else:
             partial_tp_price = entry_price - (tp_distance * self.config.partial_tp_rr)
             full_tp_price = entry_price - tp_distance
+        
+        # HYBRID TP SYSTEM: Ensure minimum 1:1 RR
+        stop_distance = abs(entry_price - stop_loss)
+        min_tp_distance = stop_distance  # Minimum 1:1 RR
+        
+        # Check if ATR-based TP meets minimum RR requirement
+        if tp_distance < min_tp_distance:
+            logger.warning(f"⚠️ ATR TP distance {tp_distance:.6f} < minimum RR {min_tp_distance:.6f}, using fallback RR TP")
+            tp_distance = min_tp_distance
+            
+            # Recalculate TP prices with minimum RR
+            if side == 'buy':
+                partial_tp_price = entry_price + (tp_distance * self.config.partial_tp_rr)
+                full_tp_price = entry_price + tp_distance
+            else:
+                partial_tp_price = entry_price - (tp_distance * self.config.partial_tp_rr)
+                full_tp_price = entry_price - tp_distance
+            
+            tp_source = "FALLBACK_RR"
+        else:
+            tp_source = "ATR_BASED"
+        
+        # Log TP decision
+        actual_rr = tp_distance / stop_distance if stop_distance > 0 else 0
+        logger.info(f"✅ TP chosen: {tp_source}, distance={tp_distance:.6f}, RR={actual_rr:.2f}")
         
         # Determine if we should take partial TP
         should_take_partial = momentum_strength in ['strong', 'medium']
@@ -115,17 +145,26 @@ class SmartTakeProfit:
     
     def _calculate_atr(self, df: pd.DataFrame) -> float:
         """Calculate Average True Range"""
-        high = df['high']
-        low = df['low']
-        close = df['close']
-        
-        # Calculate True Range
-        tr = np.maximum(high - low, np.maximum(abs(high - close.shift(1)), abs(low - close.shift(1))))
-        
-        # Calculate ATR
-        atr = tr.rolling(window=self.config.atr_period).mean().iloc[-1]
-        
-        return atr if not pd.isna(atr) else 0.0
+        try:
+            high = df['high']
+            low = df['low']
+            close = df['close']
+            
+            # Calculate True Range
+            tr = np.maximum(high - low, np.maximum(abs(high - close.shift(1)), abs(low - close.shift(1))))
+            
+            # Calculate ATR with proper handling of NaN values
+            atr_series = tr.rolling(window=self.config.atr_period).mean()
+            
+            # Get the last valid ATR value
+            atr = atr_series.dropna().iloc[-1] if not atr_series.dropna().empty else 0.0
+            
+            logger.debug(f"ATR calculation: period={self.config.atr_period}, atr={atr:.6f}")
+            return atr if not pd.isna(atr) and atr > 0 else 0.0
+            
+        except Exception as e:
+            logger.error(f"Error calculating ATR: {e}")
+            return 0.0
     
     def _calculate_momentum_strength(self, df: pd.DataFrame) -> str:
         """Calculate momentum strength using ADX and CCI"""
@@ -145,7 +184,7 @@ class SmartTakeProfit:
                 return 'medium'
                 
         except Exception as e:
-            logger.debug(f"Error calculating momentum: {e}")
+            logger.warning(f"⚠️ Momentum calculation failed: {e}, defaulting to medium")
             return 'medium'  # Default to medium
     
     def _calculate_adx(self, df: pd.DataFrame) -> float:
@@ -167,12 +206,13 @@ class SmartTakeProfit:
             dm_plus_smooth = pd.Series(dm_plus).rolling(window=self.config.adx_period).mean()
             dm_minus_smooth = pd.Series(dm_minus).rolling(window=self.config.adx_period).mean()
             
-            # Calculate DI+ and DI-
-            di_plus = 100 * (dm_plus_smooth / tr_smooth)
-            di_minus = 100 * (dm_minus_smooth / tr_smooth)
+            # Calculate DI+ and DI- with division by zero protection
+            di_plus = 100 * (dm_plus_smooth / tr_smooth.replace(0, np.nan))
+            di_minus = 100 * (dm_minus_smooth / tr_smooth.replace(0, np.nan))
             
-            # Calculate DX
-            dx = 100 * abs(di_plus - di_minus) / (di_plus + di_minus)
+            # Calculate DX with division by zero protection
+            denominator = di_plus + di_minus
+            dx = 100 * abs(di_plus - di_minus) / denominator.replace(0, np.nan)
             
             # Calculate ADX
             adx = dx.rolling(window=self.config.adx_period).mean().iloc[-1]
@@ -180,7 +220,7 @@ class SmartTakeProfit:
             return adx if not pd.isna(adx) else 20.0
             
         except Exception as e:
-            logger.debug(f"Error calculating ADX: {e}")
+            logger.warning(f"⚠️ ADX calculation failed: {e}, defaulting to 20.0")
             return 20.0  # Default neutral ADX
     
     def _calculate_cci(self, df: pd.DataFrame) -> float:
@@ -207,16 +247,19 @@ class SmartTakeProfit:
             return cci.iloc[-1] if not pd.isna(cci.iloc[-1]) else 0.0
             
         except Exception as e:
-            logger.debug(f"Error calculating CCI: {e}")
+            logger.warning(f"⚠️ CCI calculation failed: {e}, defaulting to 0.0")
             return 0.0  # Default neutral CCI
     
     def _fallback_tp(self, entry_price: float, side: str, stop_loss: float) -> SmartTPResult:
         """Fallback to simple TP calculation"""
         # Simple 2:1 R:R ratio
+        stop_distance = abs(entry_price - stop_loss)
         if side == 'buy':
-            tp_price = entry_price + (2 * abs(entry_price - stop_loss))
+            tp_price = entry_price + (2 * stop_distance)
         else:
-            tp_price = entry_price - (2 * abs(entry_price - stop_loss))
+            tp_price = entry_price - (2 * stop_distance)
+        
+        logger.warning(f"⚠️ Using fallback TP: {tp_price:.5f} (2:1 R:R, distance: {2 * stop_distance:.5f})")
         
         return SmartTPResult(
             partial_tp_price=tp_price,
