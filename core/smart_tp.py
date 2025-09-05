@@ -25,7 +25,7 @@ class SmartTPConfig:
     strong_trend_multiplier: float = 2.5
     weak_trend_multiplier: float = 1.0
     partial_tp_ratio: float = 0.5  # Take 50% at first TP
-    partial_tp_rr: float = 1.5  # 1.5:1 R:R for partial TP
+    partial_tp_rr: float = 0.5  # 0.5:1 R:R for partial TP (closer to entry)
     adx_period: int = 14
     adx_strong_threshold: float = 25.0
     cci_period: int = 14
@@ -113,12 +113,15 @@ class SmartTakeProfit:
             tp_distance = min_tp_distance
             
             # Recalculate TP prices with minimum RR
+            logger.debug(f"Fallback calculation: tp_distance={tp_distance}, partial_tp_rr={self.config.partial_tp_rr}")
             if side == 'buy':
                 partial_tp_price = entry_price + (tp_distance * self.config.partial_tp_rr)
                 full_tp_price = entry_price + tp_distance
+                logger.debug(f"Buy fallback: partial={partial_tp_price}, full={full_tp_price}")
             else:
                 partial_tp_price = entry_price - (tp_distance * self.config.partial_tp_rr)
                 full_tp_price = entry_price - tp_distance
+                logger.debug(f"Sell fallback: partial={partial_tp_price}, full={full_tp_price}")
             
             tp_source = "FALLBACK_RR"
         else:

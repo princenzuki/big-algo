@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 import time
 
 from core.signals import LorentzianClassifier, Settings, FilterSettings
-from core.risk import RiskManager, RiskSettings, AccountInfo, get_dynamic_spread, get_intelligent_sl, calculate_trailing_stop
+from core.risk import RiskManager, RiskSettings, AccountInfo, get_dynamic_spread, get_intelligent_sl, calculate_trailing_stop, calculate_hybrid_stop_loss
 from core.sessions import SessionManager
 from core.portfolio import PortfolioManager
 from core.smart_tp import SmartTakeProfit, SmartTPConfig
@@ -435,30 +435,10 @@ class LorentzianTradingBot:
             # Determine trade side
             side = 'buy' if signal > 0 else 'sell'
             
-            # Calculate stop loss and take profit based on real-time spread
+            # Calculate entry price
             entry_price = symbol_info.ask if side == 'buy' else symbol_info.bid
             
-            # Get real-time spread and calculate spread-adaptive stop loss
-            current_spread_pips = self.broker_adapter.calculate_spread_pips(symbol)
-            stop_loss_pips = current_spread_pips + 10  # Spread + 10 pips buffer
-            
-            # Get symbol info for accurate pip-to-price conversion
-            symbol_info_mt5 = self.broker_adapter.get_symbol_info(symbol)
-            if not symbol_info_mt5:
-                logger.error(f"Could not get symbol info for {symbol}")
-                return
-            
-            # Calculate pip value in price units
-            # For most pairs: 1 pip = 0.0001 (4-digit) or 0.00001 (5-digit)
-            # But we need to account for JPY pairs where 1 pip = 0.01
-            if 'JPY' in symbol:
-                pip_value = 0.01  # JPY pairs: 1 pip = 0.01
-            else:
-                pip_value = 0.0001  # Most pairs: 1 pip = 0.0001
-            
-            stop_loss_price_distance = stop_loss_pips * pip_value
-            
-            # Calculate Smart Take Profit
+            # Get historical data for calculations
             historical_data = self.historical_data.get(symbol, [])
             
             # ✅ Data Validation
@@ -475,11 +455,20 @@ class LorentzianTradingBot:
             
             logger.info(f"✅ Data validated: {len(historical_data)} bars, no NaNs")
             
-            # First calculate stop loss
-            if side == 'buy':
-                stop_loss = entry_price - stop_loss_price_distance
-            else:
-                stop_loss = entry_price + stop_loss_price_distance
+            # Get current spread for hybrid SL calculation
+            current_spread_pips = self.broker_adapter.calculate_spread_pips(symbol)
+            logger.info(f"[SPREAD] Current spread: {current_spread_pips:.1f} pips")
+            
+            # Calculate hybrid ATR-based stop loss
+            stop_loss, sl_method = calculate_hybrid_stop_loss(
+                symbol=symbol,
+                entry_price=entry_price,
+                side=side,
+                historical_data=historical_data,
+                spread_pips=current_spread_pips,
+                atr_multiplier=1.5,  # 1.5x ATR for stop distance
+                min_distance_pips=10.0  # Minimum 10 pips
+            )
             
             # ✅ Stop Loss Validation
             if stop_loss is None or stop_loss <= 0:
@@ -495,9 +484,10 @@ class LorentzianTradingBot:
                 return
             
             stop_distance = abs(entry_price - stop_loss)
-            logger.info(f"✅ SL set: {stop_loss:.5f}, distance: {stop_distance:.5f}")
+            logger.info(f"✅ SL validated: {stop_loss:.5f}, distance: {stop_distance:.5f}, method: {sl_method}")
             
             # Calculate Smart Take Profit levels
+            logger.info(f"[HYBRID_TP] Calculating hybrid TP for {symbol} {side} @ {entry_price:.5f}")
             smart_tp_result = self.smart_tp.calculate_smart_tp(
                 symbol=symbol,
                 entry_price=entry_price,
@@ -508,6 +498,15 @@ class LorentzianTradingBot:
             
             # Use the full TP price for initial order
             take_profit = smart_tp_result.full_tp_price
+            
+            # Debug TP calculation
+            logger.info(f"[HYBRID_TP] TP calculation results:")
+            logger.info(f"   - Momentum strength: {smart_tp_result.momentum_strength}")
+            logger.info(f"   - TP multiplier: {smart_tp_result.tp_multiplier:.1f}")
+            logger.info(f"   - Partial TP: {smart_tp_result.partial_tp_price:.5f}")
+            logger.info(f"   - Full TP: {smart_tp_result.full_tp_price:.5f}")
+            logger.info(f"   - Should take partial: {smart_tp_result.should_take_partial}")
+            logger.info(f"   - Trailing enabled: {smart_tp_result.trailing_enabled}")
             
             # ✅ Take Profit Validation
             if take_profit is None or take_profit <= 0:
@@ -534,11 +533,41 @@ class LorentzianTradingBot:
             # Register position for Smart TP tracking
             self.smart_tp.register_position(symbol, side, entry_price, smart_tp_result)
             
-            logger.info(f"   [STOP] Spread: {current_spread_pips:.1f} pips, SL distance: {stop_loss_pips:.1f} pips")
-            logger.info(f"   [CALC] Pip value: {pip_value:.5f}, Price distance: {stop_loss_price_distance:.5f}")
-            logger.info(f"   [SMART_TP] Momentum: {smart_tp_result.momentum_strength}, TP multiplier: {smart_tp_result.tp_multiplier:.1f}")
-            if smart_tp_result.should_take_partial:
-                logger.info(f"   [SMART_TP] Partial TP: {smart_tp_result.partial_tp_price:.5f} (R:R {self.smart_tp.config.partial_tp_rr:.1f})")
+            # Comprehensive debug summary
+            logger.info(f"[TRADE_SUMMARY] {symbol} {side.upper()} @ {entry_price:.5f}")
+            logger.info(f"   [SL] Method: {sl_method}, Price: {stop_loss:.5f}, Distance: {stop_distance:.5f}")
+            logger.info(f"   [TP] Momentum: {smart_tp_result.momentum_strength}, Multiplier: {smart_tp_result.tp_multiplier:.1f}")
+            logger.info(f"   [TP] Full: {take_profit:.5f}, Partial: {smart_tp_result.partial_tp_price:.5f}")
+            logger.info(f"   [RR] Actual: {actual_rr:.2f}:1, Partial RR: {self.smart_tp.config.partial_tp_rr:.1f}:1")
+            logger.info(f"   [FEATURES] Partial TP: {smart_tp_result.should_take_partial}, Trailing: {smart_tp_result.trailing_enabled}")
+            
+            # ✅ Safety Check: Ensure both SL and TP are valid
+            if stop_loss is None or stop_loss <= 0:
+                logger.error(f"❌ SAFETY CHECK FAILED: Invalid stop loss {stop_loss}")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons']['Invalid stop loss'] = cycle_stats['skip_reasons'].get('Invalid stop loss', 0) + 1
+                return
+            
+            if take_profit is None or take_profit <= 0:
+                logger.error(f"❌ SAFETY CHECK FAILED: Invalid take profit {take_profit}")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons']['Invalid take profit'] = cycle_stats['skip_reasons'].get('Invalid take profit', 0) + 1
+                return
+            
+            # Validate SL/TP logical relationship
+            if side == 'buy' and (stop_loss >= entry_price or take_profit <= entry_price):
+                logger.error(f"❌ SAFETY CHECK FAILED: Invalid SL/TP for buy - SL: {stop_loss:.5f}, Entry: {entry_price:.5f}, TP: {take_profit:.5f}")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons']['Invalid SL/TP relationship'] = cycle_stats['skip_reasons'].get('Invalid SL/TP relationship', 0) + 1
+                return
+            
+            if side == 'sell' and (stop_loss <= entry_price or take_profit >= entry_price):
+                logger.error(f"❌ SAFETY CHECK FAILED: Invalid SL/TP for sell - SL: {stop_loss:.5f}, Entry: {entry_price:.5f}, TP: {take_profit:.5f}")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons']['Invalid SL/TP relationship'] = cycle_stats['skip_reasons'].get('Invalid SL/TP relationship', 0) + 1
+                return
+            
+            logger.info(f"✅ SAFETY CHECK PASSED: Both SL and TP are valid and logically placed")
             
             # Check if we can open a position
             can_open, reason = self.risk_manager.can_open_position(symbol, symbol_info.spread)
@@ -593,7 +622,8 @@ class LorentzianTradingBot:
             )
             
             logger.info(f"   [ORDER] Placing {side} order: {rounded_lot_size:.3f} lots @ {entry_price:.5f}")
-            logger.info(f"   [LEVELS] Stop Loss: {stop_loss:.5f} | Take Profit: {take_profit:.5f}")
+            logger.info(f"   [LEVELS] Stop Loss: {stop_loss:.5f} ({sl_method}) | Take Profit: {take_profit:.5f} ({smart_tp_result.momentum_strength})")
+            logger.info(f"   [HYBRID] SL Distance: {stop_distance:.5f} | TP Distance: {tp_distance:.5f} | RR: {actual_rr:.2f}:1")
             
             order_result = self.broker_adapter.place_order(order_request)
             

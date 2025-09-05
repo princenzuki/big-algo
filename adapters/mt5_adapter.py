@@ -119,7 +119,7 @@ class MT5Adapter(BrokerAdapter):
             
         except Exception as e:
             logger.error(f"Error getting symbol info for {symbol}: {e}")
-            return None
+            raise  # Re-raise the exception so it can be caught by place_order
     
     def get_symbol_point(self, symbol: str) -> float:
         """Get symbol point value for accurate price calculations"""
@@ -141,13 +141,23 @@ class MT5Adapter(BrokerAdapter):
         """
         try:
             # Get symbol info first
-            symbol_info = self.get_symbol_info(request.symbol)
-            if not symbol_info:
+            try:
+                symbol_info = self.get_symbol_info(request.symbol)
+                if not symbol_info:
+                    return OrderResult(
+                        success=False,
+                        order_id=None,
+                        error_code=None,
+                        error_message=f"Symbol {request.symbol} not found",
+                        price=None,
+                        deviation=None
+                    )
+            except Exception as e:
                 return OrderResult(
                     success=False,
                     order_id=None,
                     error_code=None,
-                    error_message=f"Symbol {request.symbol} not found",
+                    error_message=str(e),
                     price=None,
                     deviation=None
                 )
@@ -494,11 +504,14 @@ class MT5Adapter(BrokerAdapter):
         min_stop_level = 0
         if hasattr(symbol_info, 'trade_stops_level'):
             min_stop_level = symbol_info.trade_stops_level
+            logger.debug(f"[STOP_ADJUST] Using trade_stops_level: {min_stop_level}")
         elif hasattr(symbol_info, 'stops_level'):
             min_stop_level = symbol_info.stops_level
+            logger.debug(f"[STOP_ADJUST] Using stops_level: {min_stop_level}")
         else:
             # Use a default minimum stop level (e.g., 10 points)
             min_stop_level = 10
+            logger.debug(f"[STOP_ADJUST] Using default stops_level: {min_stop_level}")
             
         point = symbol_info.point
         
@@ -508,6 +521,7 @@ class MT5Adapter(BrokerAdapter):
         
         # Calculate minimum distance in price units
         min_distance = min_stop_level * point
+        logger.debug(f"[STOP_ADJUST] Min stop level: {min_stop_level}, point: {point}, min_distance: {min_distance}")
         
         # Check if price is valid before adjusting stops
         if adjusted_request.price is None:
@@ -516,18 +530,25 @@ class MT5Adapter(BrokerAdapter):
         
         # Adjust stop loss if needed
         if adjusted_request.stop_loss is not None:
+            logger.debug(f"[STOP_ADJUST] Checking SL: {adjusted_request.stop_loss}, order_type: {adjusted_request.order_type}")
             if adjusted_request.order_type == 'buy':
                 # For buy orders, SL should be below entry price
                 min_sl = adjusted_request.price - min_distance
+                logger.debug(f"[STOP_ADJUST] Buy order - min_sl: {min_sl}, current_sl: {adjusted_request.stop_loss}")
                 if adjusted_request.stop_loss > min_sl:
                     adjusted_request.stop_loss = min_sl
                     logger.info(f"[STOP_ADJUST] SL adjusted for {request.symbol}: {request.stop_loss:.5f} -> {min_sl:.5f} (min distance: {min_stop_level} points)")
+                else:
+                    logger.debug(f"[STOP_ADJUST] SL already far enough: {adjusted_request.stop_loss} <= {min_sl}")
             else:
                 # For sell orders, SL should be above entry price
                 max_sl = adjusted_request.price + min_distance
+                logger.debug(f"[STOP_ADJUST] Sell order - max_sl: {max_sl}, current_sl: {adjusted_request.stop_loss}")
                 if adjusted_request.stop_loss < max_sl:
                     adjusted_request.stop_loss = max_sl
                     logger.info(f"[STOP_ADJUST] SL adjusted for {request.symbol}: {request.stop_loss:.5f} -> {max_sl:.5f} (min distance: {min_stop_level} points)")
+                else:
+                    logger.debug(f"[STOP_ADJUST] SL already far enough: {adjusted_request.stop_loss} >= {max_sl}")
         
         # Adjust take profit if needed
         if adjusted_request.take_profit is not None:
@@ -545,3 +566,17 @@ class MT5Adapter(BrokerAdapter):
                     logger.info(f"[STOP_ADJUST] TP adjusted for {request.symbol}: {request.take_profit:.5f} -> {max_tp:.5f} (min distance: {min_stop_level} points)")
         
         return adjusted_request
+    
+    def validate_lot_size(self, lot_size: float, symbol_info: SymbolInfo) -> bool:
+        """Validate lot size against symbol limits"""
+        if not symbol_info:
+            logger.warning(f"Symbol info not available for validation")
+            return False
+            
+        # Check if lot size is within bounds
+        if not (symbol_info.lot_min <= lot_size <= symbol_info.lot_max):
+            return False
+        
+        # Check if lot size aligns with step (handle floating point precision)
+        steps = lot_size / symbol_info.lot_step
+        return abs(steps - round(steps)) < 1e-10

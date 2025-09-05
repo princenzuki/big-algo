@@ -37,7 +37,11 @@ class TestRiskManager:
         self.account_info = AccountInfo(
             balance=10000.0,
             equity=10000.0,
+            margin=0.0,
             free_margin=10000.0,
+            currency="USD",
+            leverage=100,
+            server="TestServer",
             margin_level=1000.0
         )
         
@@ -63,7 +67,7 @@ class TestRiskManager:
         mock_symbol_info.trade_tick_value = 1.0
         mock_symbol_info.trade_tick_size = 0.00001
         
-        with patch('core.risk.mt5.symbol_info', return_value=mock_symbol_info):
+        with patch('MetaTrader5.symbol_info', return_value=mock_symbol_info):
             lot_size, risk_amount = self.risk_manager.calculate_position_size(
                 symbol, entry_price, stop_loss, confidence
             )
@@ -77,7 +81,10 @@ class TestRiskManager:
         assert lot_size <= 1.0, f"Lot size should be reasonable, got {lot_size}"
         
         # Validate risk amount
-        expected_risk = self.account_info.balance * self.risk_settings.max_risk_per_trade * confidence
+        # The actual calculation uses: base_risk_percent * confidence_multiplier * equity
+        base_risk_percent = self.risk_settings.max_account_risk_percent / self.risk_settings.max_concurrent_trades
+        confidence_multiplier = 0.5 + (confidence * 0.5)
+        expected_risk = self.account_info.equity * (base_risk_percent * confidence_multiplier / 100.0)
         assert abs(risk_amount - expected_risk) < 1.0, f"Expected risk ~${expected_risk:.2f}, got ${risk_amount:.2f}"
         
         print("✅ Position sizing calculation test passed")
@@ -96,7 +103,7 @@ class TestRiskManager:
         mock_symbol_info.trade_tick_value = 1.0
         mock_symbol_info.trade_tick_size = 0.00001
         
-        with patch('core.risk.mt5.symbol_info', return_value=mock_symbol_info):
+        with patch('MetaTrader5.symbol_info', return_value=mock_symbol_info):
             # Test high confidence
             lot_size_high, risk_high = self.risk_manager.calculate_position_size(
                 symbol, entry_price, stop_loss, 0.9
@@ -292,6 +299,7 @@ class TestRiskManager:
             take_profit=1.2050,
             confidence=0.8,
             risk_amount=20.0,
+            opened_at=datetime.now(),
             trailing_stop_price=None,
             trailing_stop_distance=None,
             break_even_triggered=False
@@ -305,8 +313,8 @@ class TestRiskManager:
         mock_symbol_info.ask = current_price
         mock_symbol_info.bid = current_price - 0.0001
         
-        with patch('core.risk.mt5.symbol_info', return_value=mock_symbol_info):
-            with patch('core.risk.mt5.order_send') as mock_order_send:
+        with patch('MetaTrader5.symbol_info', return_value=mock_symbol_info):
+            with patch('MetaTrader5.order_send') as mock_order_send:
                 mock_order_send.return_value = MagicMock(retcode=10009)  # Success
                 
                 result = self.risk_manager.update_position_prices(
@@ -351,7 +359,7 @@ class TestRiskManager:
         historical_data = self._create_mock_historical_data()
         
         # Test ATR-based SL
-        atr_sl = get_intelligent_sl(historical_data, atr_period=14, sl_multiplier=2.0)
+        atr_sl = get_intelligent_sl(historical_data, atr_multiplier=2.0)
         print(f"ATR-based SL: {atr_sl:.2f} pips")
         
         assert atr_sl > 0, "ATR-based SL should be positive"
@@ -373,6 +381,7 @@ class TestRiskManager:
             take_profit=1.2050,
             confidence=0.8,
             risk_amount=20.0,
+            opened_at=datetime.now(),
             trailing_stop_price=None,
             trailing_stop_distance=None,
             break_even_triggered=False
@@ -382,11 +391,14 @@ class TestRiskManager:
         current_atr = 0.001
         
         # Test trailing stop calculation
-        new_trailing_stop = calculate_trailing_stop(position, current_price, current_atr)
+        historical_data = self._create_mock_historical_data()
+        new_trailing_stop, stop_updated, log_message = calculate_trailing_stop(position, current_price, current_atr, historical_data)
         
         print(f"New trailing stop: {new_trailing_stop}")
+        print(f"Stop updated: {stop_updated}")
+        print(f"Log message: {log_message}")
         
-        if new_trailing_stop:
+        if stop_updated:
             assert new_trailing_stop > position.stop_loss, "Trailing stop should be better than original SL"
             assert new_trailing_stop < current_price, "Trailing stop should be below current price for buy"
         

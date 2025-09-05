@@ -28,7 +28,7 @@ class TestSmartTakeProfit:
             strong_trend_multiplier=2.5,
             weak_trend_multiplier=1.0,
             partial_tp_ratio=0.5,
-            partial_tp_rr=1.5,
+            partial_tp_rr=0.5,  # Partial TP should be closer to entry
             adx_period=14,
             adx_strong_threshold=25.0,
             cci_period=14,

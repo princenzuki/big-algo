@@ -385,7 +385,12 @@ class TestIntegration:
             
             # Data validation
             if len(self.mock_historical_data) >= 20:
-                result['data_validated'] = True
+                # Use risk manager for validation
+                lot_size, risk_amount = self.mock_risk_manager.calculate_position_size(
+                    symbol, entry_price, 1.1950, confidence
+                )
+                if lot_size is not None and lot_size > 0:
+                    result['data_validated'] = True
             
             # TP calculation
             if result['data_validated']:

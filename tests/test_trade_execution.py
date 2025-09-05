@@ -27,16 +27,28 @@ class TestTradeExecution:
         # Mock symbol info
         self.mock_symbol_info = SymbolInfo(
             symbol="EURUSD",
+            bid=1.1999,
+            ask=1.2000,
+            spread=0.0001,
             point=0.00001,
-            trade_tick_value=1.0,
-            trade_tick_size=0.00001,
+            digits=5,
             lot_min=0.01,
             lot_max=100.0,
             lot_step=0.01,
-            trade_stops_level=10,
-            ask=1.2000,
-            bid=1.1999
+            margin_required=100.0,
+            trade_tick_value=1.0,
+            trade_tick_size=0.00001,
+            trade_stops_level=10
         )
+        
+        # Mock MT5 symbol info for adapter tests
+        self.mock_mt5_symbol_info = MagicMock()
+        self.mock_mt5_symbol_info.point = 0.00001
+        self.mock_mt5_symbol_info.digits = 5
+        self.mock_mt5_symbol_info.volume_min = 0.01
+        self.mock_mt5_symbol_info.volume_max = 100.0
+        self.mock_mt5_symbol_info.volume_step = 0.01
+        self.mock_mt5_symbol_info.margin_initial = 100.0
     
     def test_order_request_creation(self):
         """Test order request creation with valid parameters"""
@@ -44,7 +56,7 @@ class TestTradeExecution:
         
         order_request = OrderRequest(
             symbol="EURUSD",
-            side="buy",
+            order_type="buy",
             lot_size=0.1,
             price=1.2000,
             stop_loss=1.1950,
@@ -56,7 +68,7 @@ class TestTradeExecution:
         
         # Validate order request
         assert order_request.symbol == "EURUSD"
-        assert order_request.side == "buy"
+        assert order_request.order_type == "buy"
         assert order_request.lot_size == 0.1
         assert order_request.price == 1.2000
         assert order_request.stop_loss == 1.1950
@@ -70,7 +82,7 @@ class TestTradeExecution:
         
         order_request = OrderRequest(
             symbol="EURUSD",
-            side="buy",
+            order_type="buy",
             lot_size=0.1,
             price=1.2000,
             stop_loss=1.1950,
@@ -87,9 +99,15 @@ class TestTradeExecution:
         mock_mt5_result.comment = "Test Order"
         mock_mt5_result.request_id = 1
         
-        with patch('adapters.mt5_adapter.mt5.symbol_info', return_value=self.mock_symbol_info):
-            with patch('adapters.mt5_adapter.mt5.order_send', return_value=mock_mt5_result):
-                result = self.mt5_adapter.place_order(order_request)
+        # Mock MT5 symbol info and tick data
+        mock_tick = MagicMock()
+        mock_tick.bid = 1.1999
+        mock_tick.ask = 1.2000
+        
+        with patch('adapters.mt5_adapter.mt5.symbol_info', return_value=self.mock_mt5_symbol_info):
+            with patch('adapters.mt5_adapter.mt5.symbol_info_tick', return_value=mock_tick):
+                with patch('adapters.mt5_adapter.mt5.order_send', return_value=mock_mt5_result):
+                    result = self.mt5_adapter.place_order(order_request)
         
         print(f"Order Result: {result}")
         print(f"Success: {result.success}")
@@ -110,7 +128,7 @@ class TestTradeExecution:
         
         order_request = OrderRequest(
             symbol="EURUSD",
-            side="buy",
+            order_type="buy",
             lot_size=0.1,
             price=1.2000,
             stop_loss=1.1950,
@@ -127,9 +145,15 @@ class TestTradeExecution:
         mock_mt5_result.comment = "Order rejected"
         mock_mt5_result.request_id = 1
         
-        with patch('adapters.mt5_adapter.mt5.symbol_info', return_value=self.mock_symbol_info):
-            with patch('adapters.mt5_adapter.mt5.order_send', return_value=mock_mt5_result):
-                result = self.mt5_adapter.place_order(order_request)
+        # Mock MT5 symbol info and tick data
+        mock_tick = MagicMock()
+        mock_tick.bid = 1.1999
+        mock_tick.ask = 1.2000
+        
+        with patch('adapters.mt5_adapter.mt5.symbol_info', return_value=self.mock_mt5_symbol_info):
+            with patch('adapters.mt5_adapter.mt5.symbol_info_tick', return_value=mock_tick):
+                with patch('adapters.mt5_adapter.mt5.order_send', return_value=mock_mt5_result):
+                    result = self.mt5_adapter.place_order(order_request)
         
         print(f"Order Result: {result}")
         print(f"Success: {result.success}")
@@ -137,7 +161,7 @@ class TestTradeExecution:
         
         # Validate failed result
         assert not result.success, "Order should fail"
-        assert result.order_id is None, "Order ID should be None for failed order"
+        assert result.order_id == 0, f"Order ID should be 0 for failed order, got {result.order_id}"
         assert "Order rejected" in result.error_message, f"Expected error message, got {result.error_message}"
         
         print("✅ Failed order placement test passed")
@@ -148,7 +172,7 @@ class TestTradeExecution:
         
         order_request = OrderRequest(
             symbol="EURUSD",
-            side="buy",
+            order_type="buy",
             lot_size=0.1,
             price=1.2000,
             stop_loss=1.1950,
@@ -165,9 +189,15 @@ class TestTradeExecution:
         mock_mt5_result.comment = "Test Order"
         mock_mt5_result.request_id = 1
         
-        with patch('adapters.mt5_adapter.mt5.symbol_info', return_value=self.mock_symbol_info):
-            with patch('adapters.mt5_adapter.mt5.order_send', return_value=mock_mt5_result):
-                result = self.mt5_adapter.place_order(order_request)
+        # Mock MT5 symbol info and tick data
+        mock_tick = MagicMock()
+        mock_tick.bid = 1.1999
+        mock_tick.ask = 1.2000
+        
+        with patch('adapters.mt5_adapter.mt5.symbol_info', return_value=self.mock_mt5_symbol_info):
+            with patch('adapters.mt5_adapter.mt5.symbol_info_tick', return_value=mock_tick):
+                with patch('adapters.mt5_adapter.mt5.order_send', return_value=mock_mt5_result):
+                    result = self.mt5_adapter.place_order(order_request)
         
         print(f"Order Result: {result}")
         print(f"Success: {result.success}")
@@ -193,7 +223,9 @@ class TestTradeExecution:
         
         # Should round to nearest step
         assert rounded_lot == 0.12, f"Expected 0.12, got {rounded_lot}"
-        assert rounded_lot % 0.01 == 0, "Rounded lot should align with step size"
+        # Check if rounded lot aligns with step size (handle floating point precision)
+        steps = rounded_lot / 0.01
+        assert abs(steps - round(steps)) < 1e-10, f"Rounded lot {rounded_lot} should align with step size 0.01"
         
         print("✅ Lot size rounding test passed")
     
@@ -231,26 +263,29 @@ class TestTradeExecution:
         
         order_request = OrderRequest(
             symbol="EURUSD",
-            side="buy",
+            order_type="buy",
             lot_size=0.1,
             price=1.2000,
-            stop_loss=1.1995,  # Too close to entry (5 points)
-            take_profit=1.2005,  # Too close to entry (5 points)
+            stop_loss=1.19995,  # Too close to entry (0.5 points)
+            take_profit=1.20005,  # Too close to entry (0.5 points)
             comment="Test Order"
         )
         
         # Mock symbol info with stops level
         mock_symbol_info = SymbolInfo(
             symbol="EURUSD",
+            bid=1.1999,
+            ask=1.2000,
+            spread=0.0001,
             point=0.00001,
-            trade_tick_value=1.0,
-            trade_tick_size=0.00001,
+            digits=5,
             lot_min=0.01,
             lot_max=100.0,
             lot_step=0.01,
-            trade_stops_level=10,  # 10 points minimum
-            ask=1.2000,
-            bid=1.1999
+            margin_required=100.0,
+            trade_tick_value=1.0,
+            trade_tick_size=0.00001,
+            trade_stops_level=10  # 10 points minimum
         )
         
         with patch('adapters.mt5_adapter.mt5.symbol_info', return_value=mock_symbol_info):
@@ -270,8 +305,9 @@ class TestTradeExecution:
         sl_distance = abs(adjusted_request.price - adjusted_request.stop_loss)
         tp_distance = abs(adjusted_request.take_profit - adjusted_request.price)
         
-        assert sl_distance >= min_distance, f"SL distance {sl_distance} should be >= {min_distance}"
-        assert tp_distance >= min_distance, f"TP distance {tp_distance} should be >= {min_distance}"
+        # Use floating point tolerance for distance comparison
+        assert sl_distance >= min_distance - 1e-10, f"SL distance {sl_distance} should be >= {min_distance}"
+        assert tp_distance >= min_distance - 1e-10, f"TP distance {tp_distance} should be >= {min_distance}"
         
         print("✅ Stop level adjustment test passed")
     
@@ -281,7 +317,7 @@ class TestTradeExecution:
         
         order_request = OrderRequest(
             symbol="EURUSD",
-            side="sell",
+            order_type="sell",
             lot_size=0.1,
             price=1.2000,
             stop_loss=1.2050,  # Above entry for sell
@@ -298,9 +334,15 @@ class TestTradeExecution:
         mock_mt5_result.comment = "Test Sell Order"
         mock_mt5_result.request_id = 1
         
-        with patch('adapters.mt5_adapter.mt5.symbol_info', return_value=self.mock_symbol_info):
-            with patch('adapters.mt5_adapter.mt5.order_send', return_value=mock_mt5_result):
-                result = self.mt5_adapter.place_order(order_request)
+        # Mock MT5 symbol info and tick data
+        mock_tick = MagicMock()
+        mock_tick.bid = 1.1999
+        mock_tick.ask = 1.2000
+        
+        with patch('adapters.mt5_adapter.mt5.symbol_info', return_value=self.mock_mt5_symbol_info):
+            with patch('adapters.mt5_adapter.mt5.symbol_info_tick', return_value=mock_tick):
+                with patch('adapters.mt5_adapter.mt5.order_send', return_value=mock_mt5_result):
+                    result = self.mt5_adapter.place_order(order_request)
         
         print(f"Sell Order Result: {result}")
         print(f"Success: {result.success}")
@@ -319,7 +361,7 @@ class TestTradeExecution:
         # Test valid order
         valid_order = OrderRequest(
             symbol="EURUSD",
-            side="buy",
+            order_type="buy",
             lot_size=0.1,
             price=1.2000,
             stop_loss=1.1950,
@@ -327,14 +369,14 @@ class TestTradeExecution:
             comment="Valid Order"
         )
         
-        is_valid = self.mt5_adapter.validate_order_request(valid_order, self.mock_symbol_info)
-        print(f"Valid order validation: {is_valid}")
-        assert is_valid, "Valid order should pass validation"
+        is_valid, error_msg = self.mt5_adapter.validate_order_request(valid_order, self.mock_symbol_info)
+        print(f"Valid order validation: {is_valid}, error: {error_msg}")
+        assert is_valid, f"Valid order should pass validation, got error: {error_msg}"
         
         # Test invalid order (negative lot size)
         invalid_order = OrderRequest(
             symbol="EURUSD",
-            side="buy",
+            order_type="buy",
             lot_size=-0.1,  # Invalid
             price=1.2000,
             stop_loss=1.1950,
@@ -342,8 +384,8 @@ class TestTradeExecution:
             comment="Invalid Order"
         )
         
-        is_valid_invalid = self.mt5_adapter.validate_order_request(invalid_order, self.mock_symbol_info)
-        print(f"Invalid order validation: {is_valid_invalid}")
+        is_valid_invalid, error_msg = self.mt5_adapter.validate_order_request(invalid_order, self.mock_symbol_info)
+        print(f"Invalid order validation: {is_valid_invalid}, error: {error_msg}")
         assert not is_valid_invalid, "Invalid order should fail validation"
         
         print("✅ Order validation test passed")
@@ -354,7 +396,7 @@ class TestTradeExecution:
         
         order_request = OrderRequest(
             symbol="EURUSD",
-            side="buy",
+            order_type="buy",
             lot_size=0.1,
             price=1.2000,
             stop_loss=1.1950,
@@ -382,7 +424,7 @@ class TestTradeExecution:
         
         order_request = OrderRequest(
             symbol="EURUSD",
-            side="buy",
+            order_type="buy",
             lot_size=0.1,
             price=1.2000,
             stop_loss=1.1950,
@@ -402,7 +444,7 @@ class TestTradeExecution:
         mock_success_result.comment = "Test Order"
         mock_success_result.request_id = 1
         
-        with patch('adapters.mt5_adapter.mt5.symbol_info', return_value=self.mock_symbol_info):
+        with patch('adapters.mt5_adapter.mt5.symbol_info', return_value=self.mock_mt5_symbol_info):
             with patch('adapters.mt5_adapter.mt5.order_send', side_effect=[mock_failed_result, mock_success_result]):
                 # Note: This test assumes retry logic exists in the adapter
                 # If not implemented, this test documents the expected behavior

@@ -8,6 +8,9 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class AccountInfo:
@@ -19,6 +22,7 @@ class AccountInfo:
     currency: str
     leverage: int
     server: str
+    margin_level: float = 1000.0
 
 @dataclass
 class SymbolInfo:
@@ -33,6 +37,9 @@ class SymbolInfo:
     lot_max: float
     lot_step: float
     margin_required: float
+    trade_tick_value: float = 1.0
+    trade_tick_size: float = 0.00001
+    trade_stops_level: int = 10
 
 @dataclass
 class OrderRequest:
@@ -225,7 +232,7 @@ class BrokerAdapter(ABC):
         """
         pass
     
-    def validate_order_request(self, request: OrderRequest) -> Tuple[bool, str]:
+    def validate_order_request(self, request: OrderRequest, symbol_info: Optional[SymbolInfo] = None) -> Tuple[bool, str]:
         """
         Validate order request
         
@@ -246,9 +253,10 @@ class BrokerAdapter(ABC):
             return False, "Order type must be 'buy' or 'sell'"
         
         # Get symbol info for additional validation
-        symbol_info = self.get_symbol_info(request.symbol)
-        if not symbol_info:
-            return False, f"Symbol {request.symbol} not found"
+        if symbol_info is None:
+            symbol_info = self.get_symbol_info(request.symbol)
+            if not symbol_info:
+                return False, f"Symbol {request.symbol} not found"
         
         # Validate lot size
         if request.lot_size < symbol_info.lot_min:
@@ -257,8 +265,9 @@ class BrokerAdapter(ABC):
         if request.lot_size > symbol_info.lot_max:
             return False, f"Lot size {request.lot_size} above maximum {symbol_info.lot_max}"
         
-        # Validate lot step
-        if (request.lot_size - symbol_info.lot_min) % symbol_info.lot_step != 0:
+        # Validate lot step (handle floating point precision)
+        steps = (request.lot_size - symbol_info.lot_min) / symbol_info.lot_step
+        if abs(steps - round(steps)) > 1e-10:  # Allow for small floating point errors
             return False, f"Lot size {request.lot_size} not aligned with step {symbol_info.lot_step}"
         
         return True, "OK"
@@ -284,9 +293,12 @@ class BrokerAdapter(ABC):
             logger.warning(f"Invalid lot size {lot_size} for {symbol}, using minimum")
             return symbol_info.lot_min
         
-        # Round to lot step
+        # Round to lot step with proper precision handling
         steps = round((lot_size - symbol_info.lot_min) / symbol_info.lot_step)
         rounded = symbol_info.lot_min + (steps * symbol_info.lot_step)
+        
+        # Fix floating point precision issues
+        rounded = round(rounded, 10)  # Round to 10 decimal places to avoid precision errors
         
         # Ensure within bounds
         rounded = max(rounded, symbol_info.lot_min)

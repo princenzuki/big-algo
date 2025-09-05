@@ -63,6 +63,12 @@ class ParityTestSuite:
         self.risk_manager = RiskManager(RiskSettings())
         self.session_manager = SessionManager()
         self.portfolio_manager = PortfolioManager()
+        
+        # Initialize Pine Script reference classifier (persistent across tests)
+        from core.pine_script_reference import PineScriptReference, PineScriptSettings, PineScriptFilterSettings
+        self.pine_settings = PineScriptSettings()
+        self.pine_filter_settings = PineScriptFilterSettings()
+        self.pine_classifier = PineScriptReference(self.pine_settings, self.pine_filter_settings)
     
     def load_reference_data(self, symbol: str, timeframe: str) -> pd.DataFrame:
         """
@@ -174,13 +180,26 @@ class ParityTestSuite:
         """
         feature_series = self.classifier.calculate_features(ohlc_data)
         
-        # Test cases with expected values from Pine Script
+        # Get Pine Script feature calculations for comparison (using persistent classifier)
+        
+        # Convert single OHLC data to arrays for Pine Script reference
+        ohlc_arrays = {
+            'open': [ohlc_data['open']],
+            'high': [ohlc_data['high']],
+            'low': [ohlc_data['low']],
+            'close': [ohlc_data['close']]
+        }
+        
+        # Get Pine Script feature calculations (using persistent classifier)
+        pine_features = self.pine_classifier.calculate_features(ohlc_arrays)
+        
+        # Test cases with actual Pine Script values
         test_cases = [
-            ('f1_rsi', 50.0, feature_series.f1),  # Placeholder - needs actual Pine values
-            ('f2_wt', 50.0, feature_series.f2),   # Placeholder - needs actual Pine values
-            ('f3_cci', 0.0, feature_series.f3),   # Placeholder - needs actual Pine values
-            ('f4_adx', 25.0, feature_series.f4),  # Placeholder - needs actual Pine values
-            ('f5_rsi', 50.0, feature_series.f5)   # Placeholder - needs actual Pine values
+            ('f1_rsi', pine_features['f1'], feature_series.f1),
+            ('f2_wt', pine_features['f2'], feature_series.f2),
+            ('f3_cci', pine_features['f3'], feature_series.f3),
+            ('f4_adx', pine_features['f4'], feature_series.f4),
+            ('f5_rsi', pine_features['f5'], feature_series.f5)
         ]
         
         for variable_name, expected, actual in test_cases:
@@ -201,14 +220,26 @@ class ParityTestSuite:
         
         The core prediction logic must match Pine Script exactly.
         """
-        signal_data = self.classifier.generate_signal(ohlc_data, historical_data)
+        # Convert single OHLC data to arrays for Pine Script reference
+        ohlc_arrays = {
+            'open': [ohlc_data['open']],
+            'high': [ohlc_data['high']],
+            'low': [ohlc_data['low']],
+            'close': [ohlc_data['close']]
+        }
         
-        # Test prediction components
+        # Get Python implementation result
+        python_signal_data = self.classifier.generate_signal(ohlc_data, historical_data)
+        
+        # Get Pine Script reference result (using persistent classifier)
+        pine_signal_data = self.pine_classifier.generate_signal(ohlc_arrays, historical_data)
+        
+        # Test prediction components against Pine Script reference
         test_cases = [
-            ('prediction', 0.0, signal_data['prediction']),  # Placeholder
-            ('confidence', 0.0, signal_data['confidence']),  # Placeholder
-            ('signal', 0, signal_data['signal']),            # Placeholder
-            ('neighbors_count', 0, signal_data['neighbors_count'])  # Placeholder
+            ('prediction', pine_signal_data['prediction'], python_signal_data['prediction']),
+            ('confidence', pine_signal_data['confidence'], python_signal_data['confidence']),
+            ('signal', pine_signal_data['signal'], python_signal_data['signal']),
+            ('neighbors_count', pine_signal_data['neighbors_count'], python_signal_data['neighbors_count'])
         ]
         
         for variable_name, expected, actual in test_cases:
@@ -222,6 +253,7 @@ class ParityTestSuite:
             
             if not test_result.passed:
                 logger.error(f"ML prediction test failed: {test_result.to_dict()}")
+                logger.error(f"Pine Script: {variable_name}={expected}, Python: {variable_name}={actual}")
     
     def test_risk_calculations(self, symbol: str, entry_price: float, stop_loss: float, confidence: float):
         """

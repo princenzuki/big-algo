@@ -98,15 +98,126 @@ def get_intelligent_sl(symbol_data: List[Dict], atr_multiplier: float = 2.0) -> 
     return atr_sl
 
 
+def calculate_hybrid_stop_loss(symbol: str, entry_price: float, side: str, 
+                              historical_data: List[Dict], spread_pips: float,
+                              atr_multiplier: float = 1.5, min_distance_pips: float = 10.0) -> Tuple[float, str]:
+    """
+    Calculate hybrid ATR-based stop loss with spread buffer and minimum distance.
+    
+    Args:
+        symbol: Trading symbol
+        entry_price: Entry price of the trade
+        side: 'buy' or 'sell'
+        historical_data: Historical OHLC data for ATR calculation
+        spread_pips: Current spread in pips
+        atr_multiplier: ATR multiplier for stop distance
+        min_distance_pips: Minimum stop distance in pips
+        
+    Returns:
+        Tuple of (stop_loss_price, calculation_method)
+    """
+    logger.info(f"[HYBRID_SL] Calculating hybrid SL for {symbol} {side} @ {entry_price:.5f}")
+    
+    # Step 1: Calculate ATR-based stop distance
+    atr_distance_pips = 0.0
+    atr_calculation_success = False
+    
+    if historical_data and len(historical_data) >= 14:
+        try:
+            df = pd.DataFrame(historical_data)
+            high = df['high']
+            low = df['low']
+            close = df['close']
+            
+            # Calculate True Range
+            tr = np.maximum(high - low, np.maximum(abs(high - close.shift(1)), abs(low - close.shift(1))))
+            
+            # Calculate 14-period ATR
+            atr_series = tr.rolling(window=14).mean()
+            atr = atr_series.dropna().iloc[-1] if not atr_series.dropna().empty else 0.0
+            
+            if not pd.isna(atr) and atr > 0:
+                # Convert ATR to pips (assuming 4-digit forex pairs, adjust for JPY pairs)
+                if 'JPY' in symbol:
+                    atr_distance_pips = atr * atr_multiplier * 100  # JPY pairs: 1 pip = 0.01
+                else:
+                    atr_distance_pips = atr * atr_multiplier * 10000  # Most pairs: 1 pip = 0.0001
+                
+                atr_calculation_success = True
+                logger.info(f"[HYBRID_SL] ATR calculation: ATR={atr:.6f}, multiplier={atr_multiplier}, distance={atr_distance_pips:.2f} pips")
+            else:
+                logger.warning(f"[HYBRID_SL] ATR calculation failed: invalid ATR value {atr}")
+        except Exception as e:
+            logger.error(f"[HYBRID_SL] ATR calculation error: {e}")
+    else:
+        logger.warning(f"[HYBRID_SL] Insufficient data for ATR: {len(historical_data) if historical_data else 0} bars")
+    
+    # Step 2: Add spread buffer
+    spread_buffer_pips = spread_pips + 5.0  # Spread + 5 pips buffer
+    logger.info(f"[HYBRID_SL] Spread buffer: {spread_pips:.1f} + 5.0 = {spread_buffer_pips:.1f} pips")
+    
+    # Step 3: Determine final stop distance
+    if atr_calculation_success:
+        # Use ATR-based distance + spread buffer
+        final_distance_pips = atr_distance_pips + spread_buffer_pips
+        calculation_method = "ATR_BASED"
+        logger.info(f"[HYBRID_SL] ATR-based distance: {atr_distance_pips:.1f} + spread buffer: {spread_buffer_pips:.1f} = {final_distance_pips:.1f} pips")
+    else:
+        # Fallback to static distance + spread buffer
+        final_distance_pips = min_distance_pips + spread_buffer_pips
+        calculation_method = "FALLBACK_STATIC"
+        logger.warning(f"[HYBRID_SL] ATR failed, using fallback: {min_distance_pips:.1f} + spread buffer: {spread_buffer_pips:.1f} = {final_distance_pips:.1f} pips")
+    
+    # Step 4: Enforce minimum distance
+    if final_distance_pips < min_distance_pips:
+        final_distance_pips = min_distance_pips
+        calculation_method = "MINIMUM_ENFORCED"
+        logger.warning(f"[HYBRID_SL] Enforcing minimum distance: {min_distance_pips:.1f} pips")
+    
+    # Step 5: Convert pips to price distance
+    if 'JPY' in symbol:
+        pip_value = 0.01  # JPY pairs: 1 pip = 0.01
+    else:
+        pip_value = 0.0001  # Most pairs: 1 pip = 0.0001
+    
+    price_distance = final_distance_pips * pip_value
+    logger.info(f"[HYBRID_SL] Price distance: {final_distance_pips:.1f} pips × {pip_value:.5f} = {price_distance:.5f}")
+    
+    # Step 6: Calculate stop loss price
+    if side == 'buy':
+        stop_loss_price = entry_price - price_distance
+    else:
+        stop_loss_price = entry_price + price_distance
+    
+    # Step 7: Safety validation
+    if side == 'buy' and stop_loss_price >= entry_price:
+        logger.error(f"[HYBRID_SL] ❌ Invalid SL for buy: {stop_loss_price:.5f} >= {entry_price:.5f}")
+        # Force correct SL
+        stop_loss_price = entry_price - price_distance
+    elif side == 'sell' and stop_loss_price <= entry_price:
+        logger.error(f"[HYBRID_SL] ❌ Invalid SL for sell: {stop_loss_price:.5f} <= {entry_price:.5f}")
+        # Force correct SL
+        stop_loss_price = entry_price + price_distance
+    
+    logger.info(f"[HYBRID_SL] ✅ Final SL: {stop_loss_price:.5f} (method: {calculation_method}, distance: {final_distance_pips:.1f} pips)")
+    
+    return stop_loss_price, calculation_method
+
+
 @dataclass
 class RiskSettings:
     """Risk management configuration"""
-    max_account_risk_percent: float = 10.0  # 10% max risk
+    max_risk_per_trade: float = 0.02  # 2% per trade
+    max_daily_risk: float = 0.05  # 5% daily
+    max_total_risk: float = 0.10  # 10% total
     min_lot_size: float = 0.01
     max_concurrent_trades: int = 5
     cooldown_minutes: int = 10
     max_spread_pips: float = 3.0
     min_stop_distance_pips: float = 5.0
+    one_trade_per_symbol: bool = True
+    # Legacy field for backward compatibility
+    max_account_risk_percent: float = 10.0  # 10% max risk
 
 @dataclass
 class Position:
@@ -123,9 +234,12 @@ class Position:
     status: str = 'open'  # 'open', 'closed', 'stopped'
     # Trailing stop fields
     original_stop_loss: float = 0.0
+    trailing_stop_price: float = 0.0
+    trailing_stop_distance: float = 0.0
     trailing_enabled: bool = False
     best_price: float = 0.0
     atr_distance: float = 0.0
+    break_even_triggered: bool = False
 
 
 def calculate_trailing_stop(position: Position, current_price: float, current_atr: float, 
@@ -224,6 +338,9 @@ class AccountInfo:
     margin: float
     free_margin: float
     currency: str = 'USD'
+    leverage: int = 100
+    server: str = 'TestServer'
+    margin_level: float = 1000.0
 
 class RiskManager:
     """
@@ -263,7 +380,7 @@ class RiskManager:
             return 0.0, 0.0
         
         # Calculate risk per trade based on confidence
-        base_risk_percent = self.settings.max_account_risk_percent / self.settings.max_concurrent_trades
+        base_risk_percent = self.settings.max_risk_per_trade * 100  # Convert to percentage
         confidence_multiplier = 0.5 + (confidence * 0.5)  # 0.5 to 1.0 range
         risk_percent = base_risk_percent * confidence_multiplier
         
@@ -327,7 +444,7 @@ class RiskManager:
             return False, "NO_ACCOUNT_INFO"
         
         current_risk = self._calculate_current_risk()
-        if current_risk >= self.settings.max_account_risk_percent:
+        if current_risk >= self.settings.max_total_risk * 100:
             return False, f"RISK_CAP_REACHED_{current_risk:.1f}%"
         
         return True, "OK"
