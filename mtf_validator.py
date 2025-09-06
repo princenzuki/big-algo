@@ -114,6 +114,9 @@ class MultiTimeframeValidator:
             # Analyze each timeframe
             tf_analysis = self._analyze_timeframes(symbol, mtf_data)
             
+            # Detailed debug logging - consolidated timeframe analysis
+            self._log_consolidated_timeframe_analysis(symbol, tf_analysis)
+            
             # Determine trade validation
             validation_result = self._determine_validation(signal, tf_analysis)
             
@@ -624,3 +627,33 @@ class MultiTimeframeValidator:
         except Exception as e:
             self.logger.error(f"[MTF_VALIDATOR] Error applying filters: {e}")
             return True  # Fail safe - allow trade if filter fails
+    
+    def _log_consolidated_timeframe_analysis(self, symbol: str, tf_analysis: Dict):
+        """
+        Log consolidated timeframe analysis in the requested format
+        
+        Args:
+            symbol: Trading symbol
+            tf_analysis: Timeframe analysis results
+        """
+        try:
+            # Get 1m analysis
+            tf_1m = tf_analysis.get('1m', {})
+            direction_1m = tf_1m.get('direction', 'neutral')
+            confidence_1m = tf_1m.get('confidence', 0.0)
+            
+            # Get 5m analysis
+            tf_5m = tf_analysis.get('5m', {})
+            direction_5m = tf_5m.get('direction', 'neutral')
+            confidence_5m = tf_5m.get('confidence', 0.0)
+            
+            # Get 15m analysis
+            tf_15m = tf_analysis.get('15m', {})
+            direction_15m = tf_15m.get('direction', 'neutral')
+            confidence_15m = tf_15m.get('confidence', 0.0)
+            
+            # Log consolidated analysis
+            self.logger.info(f"[MTF_DEBUG] {symbol} | 1m: {direction_1m}(conf={confidence_1m:.3f}), 5m: {direction_5m}(conf={confidence_5m:.3f}), 15m: {direction_15m}(conf={confidence_15m:.3f})")
+            
+        except Exception as e:
+            self.logger.error(f"[MTF_VALIDATOR] Error logging consolidated analysis: {e}")
