@@ -16,11 +16,11 @@ class GlobalSettings:
     """Global system settings"""
     # Timezone and scheduling
     timezone: str = "Africa/Nairobi"
-    loop_interval_minutes: int = 5
+    loop_interval_minutes: int = 1
     cooldown_minutes: int = 10
     
     # Trading timeframe (MUST match Pine Script timeframe)
-    trading_timeframe: str = "M5"  # 5-minute timeframe to match Pine Script
+    trading_timeframe: str = "M1"  # 1-minute timeframe to match Pine Script
     
     # Risk management
     max_account_risk_percent: float = 10.0

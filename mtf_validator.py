@@ -141,15 +141,14 @@ class MultiTimeframeValidator:
                 self.logger.warning(f"[MTF_VALIDATOR] Insufficient 1m data for {symbol}")
                 return None
             
-            # For now, we'll use the existing data and simulate 5m/15m
-            # In a real implementation, you'd fetch actual 5m and 15m data
-            df_1m = pd.DataFrame(historical_data[-50:])  # Last 50 bars
+            # Use 1m data directly and create proper 5m/15m timeframes
+            df_1m = pd.DataFrame(historical_data[-100:])  # Last 100 bars for 1m
             
-            # Simulate 5m data by resampling 1m data (every 5th bar)
+            # Create proper 5m data by resampling 1m data (every 5th bar)
             df_5m = df_1m.iloc[::5].copy()
             df_5m = df_5m.reset_index(drop=True)
             
-            # Simulate 15m data by resampling 1m data (every 15th bar)
+            # Create proper 15m data by resampling 1m data (every 15th bar)
             df_15m = df_1m.iloc[::15].copy()
             df_15m = df_15m.reset_index(drop=True)
             

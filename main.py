@@ -20,6 +20,7 @@ from core.portfolio import PortfolioManager
 from core.smart_tp import SmartTakeProfit, SmartTPConfig
 from adapters.mt5_adapter import MT5Adapter
 from config.settings import settings_manager
+from mtf_validator import MultiTimeframeValidator
 
 # Configure logging
 logging.basicConfig(
@@ -77,6 +78,9 @@ class LorentzianTradingBot:
         
         # Initialize Smart Take Profit system
         self.smart_tp = SmartTakeProfit(SmartTPConfig())
+        
+        # Initialize Multi-Timeframe Validator
+        self.mtf_validator = MultiTimeframeValidator(self.broker_adapter)
         
         # Initialize broker adapter
         self.broker_adapter = MT5Adapter(
@@ -143,7 +147,7 @@ class LorentzianTradingBot:
         
         for symbol in enabled_symbols:
             try:
-                # Get historical rates (last 1000 bars) - using 5-minute timeframe to match Pine Script
+                # Get historical rates (last 1000 bars) - using 1-minute timeframe to match Pine Script
                 settings = settings_manager.get_all_settings()
                 timeframe = settings['global']['trading_timeframe']
                 rates = self.broker_adapter.get_rates(symbol, timeframe, 1000)
@@ -432,14 +436,42 @@ class LorentzianTradingBot:
             if signal == 0:  # Neutral signal
                 return
             
+            # Get historical data for MTF validation
+            historical_data = self.historical_data.get(symbol, [])
+            
+            # ✅ MTF Validation - Validate signal across multiple timeframes
+            logger.info(f"[MTF_VALIDATION] Starting multi-timeframe validation for {symbol}...")
+            mtf_result = self.mtf_validator.validate_trade_signal(
+                symbol=symbol,
+                signal=signal,
+                current_1m_data=historical_data[-1] if historical_data else {},
+                historical_data=historical_data
+            )
+            
+            # Check if MTF validation allows the trade
+            if not mtf_result.allow_trade:
+                logger.info(f"[MTF_VALIDATION] {symbol} | BLOCKED: {mtf_result.reasoning}")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons']['MTF Validation'] = cycle_stats['skip_reasons'].get('MTF Validation', 0) + 1
+                return
+            
+            # Apply MTF confidence boost
+            original_confidence = confidence
+            confidence = min(confidence + mtf_result.confidence_boost, 1.0)
+            
+            # Log MTF validation results
+            tf_1m = mtf_result.timeframe_alignment.get('1m', 'unknown')
+            tf_5m = mtf_result.timeframe_alignment.get('5m', 'unknown')
+            tf_15m = mtf_result.timeframe_alignment.get('15m', 'unknown')
+            logger.info(f"[MTF_VALIDATION] {symbol} | 1m: {tf_1m} | 5m: {tf_5m} | 15m: {tf_15m} | Final Action: ALLOWED")
+            logger.info(f"[MTF_VALIDATION] {symbol} | Confidence: {original_confidence:.3f} -> {confidence:.3f} (+{mtf_result.confidence_boost:.3f})")
+            logger.info(f"[MTF_VALIDATION] {symbol} | Lot Multiplier: {mtf_result.lot_multiplier:.2f} | TP Multiplier: {mtf_result.tp_multiplier:.2f}")
+            
             # Determine trade side
             side = 'buy' if signal > 0 else 'sell'
             
             # Calculate entry price
             entry_price = symbol_info.ask if side == 'buy' else symbol_info.bid
-            
-            # Get historical data for calculations
-            historical_data = self.historical_data.get(symbol, [])
             
             # ✅ Data Validation
             if not historical_data or len(historical_data) < 20:
@@ -501,6 +533,19 @@ class LorentzianTradingBot:
             
             # Use the full TP price for initial order
             take_profit = smart_tp_result.full_tp_price
+            
+            # Apply MTF TP multiplier
+            original_tp = take_profit
+            if side == 'buy':
+                # For buy orders, increase TP distance
+                tp_distance = take_profit - entry_price
+                take_profit = entry_price + (tp_distance * mtf_result.tp_multiplier)
+            else:
+                # For sell orders, increase TP distance
+                tp_distance = entry_price - take_profit
+                take_profit = entry_price - (tp_distance * mtf_result.tp_multiplier)
+            
+            logger.info(f"[MTF_VALIDATION] {symbol} | TP: {original_tp:.5f} -> {take_profit:.5f} (x{mtf_result.tp_multiplier:.2f})")
             
             # Debug TP calculation
             logger.info(f"[HYBRID_TP] TP calculation results:")
@@ -585,6 +630,11 @@ class LorentzianTradingBot:
             lot_size, risk_amount = self.risk_manager.calculate_position_size(
                 symbol, entry_price, stop_loss, confidence
             )
+            
+            # Apply MTF lot multiplier
+            original_lot_size = lot_size
+            lot_size = lot_size * mtf_result.lot_multiplier
+            logger.info(f"[MTF_VALIDATION] {symbol} | Lot Size: {original_lot_size:.3f} -> {lot_size:.3f} (x{mtf_result.lot_multiplier:.2f})")
             
             # ✅ Lot Size Validation
             if lot_size is None or lot_size <= 0:
