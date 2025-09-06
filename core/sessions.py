@@ -63,12 +63,13 @@ class SessionManager:
         """Get current time in Nairobi timezone"""
         return datetime.now(self.timezone)
     
-    def is_weekend_blocked(self, symbol: str) -> Tuple[bool, str]:
+    def is_weekend_blocked(self, symbol: str, symbol_config: Dict = None) -> Tuple[bool, str]:
         """
         Check if trading is blocked due to weekend rules
         
         Args:
             symbol: Trading symbol
+            symbol_config: Symbol configuration from YAML (optional)
             
         Returns:
             Tuple of (is_blocked, reason)
@@ -77,7 +78,11 @@ class SessionManager:
         current_weekday = current_time.weekday()  # 0=Monday, 6=Sunday
         current_time_only = current_time.time()
         
-        # BTCUSD is allowed to trade on weekends
+        # Check if symbol is allowed to trade on weekends (from YAML config)
+        if symbol_config and symbol_config.get('allow_weekend', False):
+            return False, "OK"
+        
+        # Fallback to hard-coded logic for backward compatibility
         if symbol == 'BTCUSD':
             return False, "OK"
         
@@ -143,18 +148,19 @@ class SessionManager:
         else:
             return False
     
-    def can_trade_symbol(self, symbol: str) -> Tuple[bool, str]:
+    def can_trade_symbol(self, symbol: str, symbol_config: Dict = None) -> Tuple[bool, str]:
         """
         Check if symbol can be traded right now
         
         Args:
             symbol: Trading symbol
+            symbol_config: Symbol configuration from YAML (optional)
             
         Returns:
             Tuple of (can_trade, reason)
         """
         # Check weekend blocking
-        is_blocked, weekend_reason = self.is_weekend_blocked(symbol)
+        is_blocked, weekend_reason = self.is_weekend_blocked(symbol, symbol_config)
         if is_blocked:
             return False, weekend_reason
         

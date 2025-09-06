@@ -239,16 +239,16 @@ class LorentzianTradingBot:
         try:
             logger.info(f"[ANALYZE] Analyzing {symbol}...")
             
-            # Check if symbol can be traded
-            can_trade, reason = self.session_manager.can_trade_symbol(symbol)
+            # Get symbol configuration first
+            symbol_config = self.symbol_configs.get(symbol, {})
+            
+            # Check if symbol can be traded (pass symbol config for weekend rules)
+            can_trade, reason = self.session_manager.can_trade_symbol(symbol, symbol_config)
             if not can_trade:
                 logger.info(f"   [SKIP] {reason}")
                 cycle_stats['trades_skipped'] += 1
                 cycle_stats['skip_reasons'][reason] = cycle_stats['skip_reasons'].get(reason, 0) + 1
                 return
-            
-            # Get symbol configuration
-            symbol_config = self.symbol_configs.get(symbol, {})
             if not symbol_config.get('enabled', True):
                 logger.info(f"   [SKIP] Symbol disabled in configuration")
                 cycle_stats['trades_skipped'] += 1
