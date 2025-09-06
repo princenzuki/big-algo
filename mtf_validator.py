@@ -112,7 +112,7 @@ class MultiTimeframeValidator:
                 return self._create_fail_safe_result("No MTF data available")
             
             # Analyze each timeframe
-            tf_analysis = self._analyze_timeframes(mtf_data)
+            tf_analysis = self._analyze_timeframes(symbol, mtf_data)
             
             # Determine trade validation
             validation_result = self._determine_validation(signal, tf_analysis)
@@ -163,17 +163,18 @@ class MultiTimeframeValidator:
             self.logger.error(f"[MTF_VALIDATOR] Error getting MTF data for {symbol}: {e}")
             return None
     
-    def _analyze_timeframes(self, mtf_data: Dict) -> Dict[str, Dict]:
+    def _analyze_timeframes(self, symbol: str, mtf_data: Dict) -> Dict[str, Dict]:
         """
         Analyze each timeframe using the EXACT SAME indicators and ML logic as the 1-minute engine
         
         Args:
+            symbol: Trading symbol
             mtf_data: Multi-timeframe data dictionary
             
         Returns:
             Dictionary with analysis for each timeframe
         """
-        analysis = {}
+        analysis = {'symbol': symbol}  # Include symbol for debug logging
         
         for tf_name, df in mtf_data.items():
             if len(df) < 20:  # Need minimum data for indicators
@@ -205,6 +206,9 @@ class MultiTimeframeValidator:
                 'ml_signal': ml_signal,
                 'confidence': confidence
             }
+            
+            # Debug logging for each timeframe
+            self.logger.info(f"[MTF_DEBUG] {tf_name.upper()}: signal={ml_signal}, confidence={confidence:.3f}, direction={direction}")
             
         return analysis
     
@@ -346,6 +350,14 @@ class MultiTimeframeValidator:
         Returns:
             MTFValidationResult with validation outcome
         """
+        # Get timeframe signals and confidence for debug logging
+        signal_1m = tf_analysis.get('1m', {}).get('ml_signal', 0)
+        confidence_1m = tf_analysis.get('1m', {}).get('confidence', 0.0)
+        signal_5m = tf_analysis.get('5m', {}).get('ml_signal', 0)
+        confidence_5m = tf_analysis.get('5m', {}).get('confidence', 0.0)
+        signal_15m = tf_analysis.get('15m', {}).get('ml_signal', 0)
+        confidence_15m = tf_analysis.get('15m', {}).get('confidence', 0.0)
+        
         # Get timeframe directions
         tf_1m = tf_analysis.get('1m', {}).get('direction', 'neutral')
         tf_5m = tf_analysis.get('5m', {}).get('direction', 'neutral')
@@ -358,6 +370,9 @@ class MultiTimeframeValidator:
         
         # Determine signal direction
         signal_direction = 'bullish' if signal > 0 else 'bearish'
+        
+        # Main debug logging - show all timeframes side-by-side
+        self.logger.info(f"[MTF_DEBUG] Symbol: {tf_analysis.get('symbol', 'UNKNOWN')} | 1m: {signal_1m}({confidence_1m:.3f}), 5m: {signal_5m}({confidence_5m:.3f}), 15m: {signal_15m}({confidence_15m:.3f}), Final Action: {signal_direction}")
         
         # Apply validation logic
         if tf_1m == signal_direction and tf_5m == signal_direction and tf_15m == signal_direction:
