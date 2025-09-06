@@ -19,6 +19,90 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 # ===============================
+# Symbol-Aware Pip Value System
+# ===============================
+
+def get_pip_value(symbol: str) -> float:
+    """
+    Get the pip multiplier for a given trading symbol.
+    
+    This function returns the correct pip value based on the instrument type:
+    - 0.0001 for standard forex pairs (EURUSD, GBPUSD, etc.)
+    - 0.01 for JPY pairs (USDJPY, EURJPY, etc.)
+    - 0.01 for gold (XAUUSD) and oil (USOIL, UKOIL, etc.)
+    - 1.0 for Bitcoin and other cryptos (BTCUSD, BTCUSDm, etc.)
+    
+    Args:
+        symbol: Trading symbol (e.g., 'EURUSD', 'XAUUSD', 'BTCUSDm')
+        
+    Returns:
+        float: Pip multiplier for the symbol
+        
+    Examples:
+        >>> get_pip_value('EURUSD')
+        0.0001
+        >>> get_pip_value('USDJPY')
+        0.01
+        >>> get_pip_value('XAUUSD')
+        0.01
+        >>> get_pip_value('BTCUSDm')
+        1.0
+    """
+    symbol_upper = symbol.upper()
+    
+    # Bitcoin and other cryptocurrencies
+    if any(crypto in symbol_upper for crypto in ['BTC', 'ETH', 'LTC', 'XRP', 'ADA', 'DOT']):
+        return 1.0
+    
+    # Gold and precious metals
+    if any(metal in symbol_upper for metal in ['XAU', 'GOLD']):
+        return 0.01
+    
+    # Oil and energy commodities
+    if any(oil in symbol_upper for oil in ['OIL', 'USOIL', 'UKOIL', 'BRENT', 'WTI']):
+        return 0.01
+    
+    # Stock indices (if they use different pip values)
+    if any(index in symbol_upper for index in ['US30', 'US500', 'USTEC', 'NAS100', 'SPX500']):
+        return 0.01  # Most indices use 0.01
+    
+    # JPY pairs - special case for forex
+    if 'JPY' in symbol_upper:
+        return 0.01
+    
+    # Default to standard forex pip value (0.0001)
+    # This covers EURUSD, GBPUSD, AUDUSD, USDCAD, etc.
+    return 0.0001
+
+def get_pip_distance_in_price(symbol: str, distance_pips: float) -> float:
+    """
+    Convert pip distance to actual price distance for a symbol.
+    
+    Args:
+        symbol: Trading symbol
+        distance_pips: Distance in pips
+        
+    Returns:
+        float: Price distance
+    """
+    pip_value = get_pip_value(symbol)
+    return distance_pips * pip_value
+
+def get_price_distance_in_pips(symbol: str, price_distance: float) -> float:
+    """
+    Convert price distance to pip distance for a symbol.
+    
+    Args:
+        symbol: Trading symbol
+        price_distance: Price distance
+        
+    Returns:
+        float: Distance in pips
+    """
+    pip_value = get_pip_value(symbol)
+    return price_distance / pip_value if pip_value > 0 else 0.0
+
+# ===============================
 # Dynamic Spread & Smart Stop Logic
 # ===============================
 
@@ -137,11 +221,9 @@ def calculate_hybrid_stop_loss(symbol: str, entry_price: float, side: str,
             atr = atr_series.dropna().iloc[-1] if not atr_series.dropna().empty else 0.0
             
             if not pd.isna(atr) and atr > 0:
-                # Convert ATR to pips (assuming 4-digit forex pairs, adjust for JPY pairs)
-                if 'JPY' in symbol:
-                    atr_distance_pips = atr * atr_multiplier * 100  # JPY pairs: 1 pip = 0.01
-                else:
-                    atr_distance_pips = atr * atr_multiplier * 10000  # Most pairs: 1 pip = 0.0001
+                # Convert ATR to pips using symbol-aware pip value
+                pip_value = get_pip_value(symbol)
+                atr_distance_pips = (atr * atr_multiplier) / pip_value
                 
                 atr_calculation_success = True
                 logger.info(f"[HYBRID_SL] ATR calculation: ATR={atr:.6f}, multiplier={atr_multiplier}, distance={atr_distance_pips:.2f} pips")
@@ -174,14 +256,10 @@ def calculate_hybrid_stop_loss(symbol: str, entry_price: float, side: str,
         calculation_method = "MINIMUM_ENFORCED"
         logger.warning(f"[HYBRID_SL] Enforcing minimum distance: {min_distance_pips:.1f} pips")
     
-    # Step 5: Convert pips to price distance
-    if 'JPY' in symbol:
-        pip_value = 0.01  # JPY pairs: 1 pip = 0.01
-    else:
-        pip_value = 0.0001  # Most pairs: 1 pip = 0.0001
-    
-    price_distance = final_distance_pips * pip_value
-    logger.info(f"[HYBRID_SL] Price distance: {final_distance_pips:.1f} pips × {pip_value:.5f} = {price_distance:.5f}")
+    # Step 5: Convert pips to price distance using symbol-aware pip value
+    pip_value = get_pip_value(symbol)
+    price_distance = get_pip_distance_in_price(symbol, final_distance_pips)
+    logger.info(f"[HYBRID_SL] {symbol}: {final_distance_pips:.1f} pips × {pip_value:.5f} = {price_distance:.5f}")
     
     # Step 6: Calculate stop loss price
     if side == 'buy':
@@ -199,7 +277,7 @@ def calculate_hybrid_stop_loss(symbol: str, entry_price: float, side: str,
         # Force correct SL
         stop_loss_price = entry_price + price_distance
     
-    logger.info(f"[HYBRID_SL] ✅ Final SL: {stop_loss_price:.5f} (method: {calculation_method}, distance: {final_distance_pips:.1f} pips)")
+    logger.info(f"[HYBRID_SL] [OK] Final SL: {stop_loss_price:.5f} (method: {calculation_method}, distance: {final_distance_pips:.1f} pips, pip_mult: {pip_value:.5f})")
     
     return stop_loss_price, calculation_method
 
@@ -387,9 +465,9 @@ class RiskManager:
         # Calculate risk amount in account currency
         risk_amount = self.account_info.equity * (risk_percent / 100.0)
         
-        # Calculate pip value and stop distance
-        pip_value = self._get_pip_value(symbol, entry_price)
-        stop_distance_pips = abs(entry_price - stop_loss) / self._get_pip_size(symbol)
+        # Calculate pip value and stop distance using symbol-aware system
+        pip_value = get_pip_value(symbol)
+        stop_distance_pips = get_price_distance_in_pips(symbol, abs(entry_price - stop_loss))
         
         if stop_distance_pips < self.settings.min_stop_distance_pips:
             logger.warning(f"Stop distance too small: {stop_distance_pips:.1f} pips")
@@ -596,33 +674,17 @@ class RiskManager:
         return (total_risk / self.account_info.equity) * 100.0
     
     def _get_pip_value(self, symbol: str, price: float) -> float:
-        """Get pip value for symbol"""
-        # Simplified pip value calculation
-        # In production, this should use exact broker pip values
-        if 'USD' in symbol:
-            return 10.0  # $10 per pip for standard lot
-        else:
-            return 10.0  # Placeholder
+        """Get pip value for symbol in account currency"""
+        # This method should return the monetary value of 1 pip
+        # For now, using a simplified calculation - in production this should
+        # use exact broker pip values based on account currency and lot size
+        pip_multiplier = get_pip_value(symbol)
+        # Simplified: assume $10 per pip for standard lot (this should be calculated properly)
+        return 10.0  # Placeholder - should calculate based on account currency
     
     def _get_pip_size(self, symbol: str) -> float:
-        """Get pip size for symbol using MT5 symbol info"""
-        try:
-            import MetaTrader5 as mt5
-            symbol_info = mt5.symbol_info(symbol)
-            if symbol_info:
-                return symbol_info.point
-            else:
-                # Fallback to simplified calculation
-                if 'JPY' in symbol:
-                    return 0.01
-                else:
-                    return 0.0001
-        except Exception:
-            # Fallback to simplified calculation
-            if 'JPY' in symbol:
-                return 0.01
-            else:
-                return 0.0001
+        """Get pip size for symbol using symbol-aware system"""
+        return get_pip_value(symbol)
     
     def get_risk_summary(self) -> Dict[str, any]:
         """Get current risk status summary"""

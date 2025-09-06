@@ -318,7 +318,7 @@ class LorentzianTradingBot:
             
             # Get current spread for logging (no restrictions)
             spread_pips = self.broker_adapter.calculate_spread_pips(symbol)
-            logger.info(f"   [SPREAD] Current spread: {spread_pips:.1f} pips")
+            logger.info(f"   [SPREAD] {symbol}: Current spread: {spread_pips:.1f} pips")
             
             # Process signal
             await self._process_signal(symbol, signal_data, symbol_info, symbol_config, cycle_stats)
@@ -425,7 +425,7 @@ class LorentzianTradingBot:
                 logger.error(f"❌ Invalid confidence: {confidence}")
                 return
             
-            logger.info(f"✅ Signal generated: {signal}, confidence: {confidence:.3f}")
+            logger.info(f"[OK] Signal generated: {signal}, confidence: {confidence:.3f}")
             
             logger.info(f"   [PROCESS] Processing {signal} signal for {symbol}...")
             
@@ -453,11 +453,11 @@ class LorentzianTradingBot:
                 logger.error(f"❌ NaN values found in historical data for {symbol}")
                 return
             
-            logger.info(f"✅ Data validated: {len(historical_data)} bars, no NaNs")
+            logger.info(f"[OK] Data validated: {len(historical_data)} bars, no NaNs")
             
             # Get current spread for hybrid SL calculation
             current_spread_pips = self.broker_adapter.calculate_spread_pips(symbol)
-            logger.info(f"[SPREAD] Current spread: {current_spread_pips:.1f} pips")
+            logger.info(f"[SPREAD] {symbol}: Current spread: {current_spread_pips:.1f} pips")
             
             # Calculate hybrid ATR-based stop loss
             stop_loss, sl_method = calculate_hybrid_stop_loss(
@@ -484,7 +484,10 @@ class LorentzianTradingBot:
                 return
             
             stop_distance = abs(entry_price - stop_loss)
-            logger.info(f"✅ SL validated: {stop_loss:.5f}, distance: {stop_distance:.5f}, method: {sl_method}")
+            from core.risk import get_pip_value, get_price_distance_in_pips
+            pip_multiplier = get_pip_value(symbol)
+            stop_distance_pips = get_price_distance_in_pips(symbol, stop_distance)
+            logger.info(f"[OK] SL validated: {stop_loss:.5f}, distance: {stop_distance:.5f} ({stop_distance_pips:.1f} pips), method: {sl_method}, pip_mult: {pip_multiplier:.5f}")
             
             # Calculate Smart Take Profit levels
             logger.info(f"[HYBRID_TP] Calculating hybrid TP for {symbol} {side} @ {entry_price:.5f}")
@@ -528,7 +531,8 @@ class LorentzianTradingBot:
                 return
             
             actual_rr = tp_distance / stop_distance if stop_distance > 0 else 0
-            logger.info(f"✅ TP validated: {take_profit:.5f}, distance: {tp_distance:.5f}, RR: {actual_rr:.2f}")
+            tp_distance_pips = get_price_distance_in_pips(symbol, tp_distance)
+            logger.info(f"[OK] TP validated: {take_profit:.5f}, distance: {tp_distance:.5f} ({tp_distance_pips:.1f} pips), RR: {actual_rr:.2f}, pip_mult: {pip_multiplier:.5f}")
             
             # Register position for Smart TP tracking
             self.smart_tp.register_position(symbol, side, entry_price, smart_tp_result)
@@ -567,7 +571,7 @@ class LorentzianTradingBot:
                 cycle_stats['skip_reasons']['Invalid SL/TP relationship'] = cycle_stats['skip_reasons'].get('Invalid SL/TP relationship', 0) + 1
                 return
             
-            logger.info(f"✅ SAFETY CHECK PASSED: Both SL and TP are valid and logically placed")
+            logger.info(f"[OK] SAFETY CHECK PASSED: Both SL and TP are valid and logically placed")
             
             # Check if we can open a position
             can_open, reason = self.risk_manager.can_open_position(symbol, symbol_info.spread)

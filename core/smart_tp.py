@@ -129,7 +129,7 @@ class SmartTakeProfit:
         
         # Log TP decision
         actual_rr = tp_distance / stop_distance if stop_distance > 0 else 0
-        logger.info(f"✅ TP chosen: {tp_source}, distance={tp_distance:.6f}, RR={actual_rr:.2f}")
+        logger.info(f"[OK] TP chosen: {tp_source}, distance={tp_distance:.6f}, RR={actual_rr:.2f}")
         
         # Determine if we should take partial TP
         should_take_partial = momentum_strength in ['strong', 'medium']
