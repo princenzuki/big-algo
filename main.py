@@ -76,18 +76,18 @@ class LorentzianTradingBot:
         self.session_manager = SessionManager()
         self.portfolio_manager = PortfolioManager(self.settings.database_path)
         
-        # Initialize Smart Take Profit system
-        self.smart_tp = SmartTakeProfit(SmartTPConfig())
-        
-        # Initialize Multi-Timeframe Validator
-        self.mtf_validator = MultiTimeframeValidator(self.broker_adapter)
-        
-        # Initialize broker adapter
+        # Initialize broker adapter first
         self.broker_adapter = MT5Adapter(
             login=self.settings.broker_login,
             password=self.settings.broker_password,
             server=self.settings.broker_server
         )
+        
+        # Initialize Smart Take Profit system
+        self.smart_tp = SmartTakeProfit(SmartTPConfig())
+        
+        # Initialize Multi-Timeframe Validator
+        self.mtf_validator = MultiTimeframeValidator(self.broker_adapter)
         
         # Bot state
         self.running = False
