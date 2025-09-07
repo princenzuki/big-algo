@@ -111,6 +111,21 @@ async def get_dashboard_data():
         # Get system status
         system_status_data = get_system_status()
         
+        # Handle risk summary error case
+        if "error" in risk_summary:
+            risk_summary_model = RiskSummaryModel(
+                account_balance=0.0,
+                account_equity=0.0,
+                current_risk_percent=0.0,
+                max_risk_percent=8.0,
+                open_positions=0,
+                max_positions=5,
+                positions=[],
+                cooldowns={}
+            )
+        else:
+            risk_summary_model = RiskSummaryModel(**risk_summary)
+        
         return DashboardDataModel(
             portfolio_stats=PortfolioStatsModel(**portfolio_data["portfolio_stats"]),
             open_trades=[TradeModel(**trade) for trade in portfolio_data["open_trades"]],
@@ -118,7 +133,7 @@ async def get_dashboard_data():
             pnl_by_period=portfolio_data["pnl_by_period"],
             confidence_distribution=ConfidenceDistributionModel(**portfolio_data["confidence_distribution"]),
             symbol_performance=[SymbolPerformanceModel(**perf) for perf in portfolio_data["symbol_performance"].values()],
-            risk_summary=RiskSummaryModel(**risk_summary),
+            risk_summary=risk_summary_model,
             session_info=SessionInfoModel(**session_info),
             algo_health=algo_health,
             system_status=system_status_data
@@ -284,17 +299,52 @@ async def get_risk_summary():
     """Get risk summary"""
     try:
         risk_data = risk_manager.get_risk_summary()
+        
+        # Handle case when no account info is available
+        if "error" in risk_data:
+            return RiskSummaryModel(
+                account_balance=0.0,
+                account_equity=0.0,
+                current_risk_percent=0.0,
+                max_risk_percent=8.0,
+                open_positions=0,
+                max_positions=5,
+                positions=[],
+                cooldowns={}
+            )
+        
         return RiskSummaryModel(**risk_data)
         
     except Exception as e:
         logger.error(f"Error getting risk summary: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return default values instead of raising exception
+        return RiskSummaryModel(
+            account_balance=0.0,
+            account_equity=0.0,
+            current_risk_percent=0.0,
+            max_risk_percent=8.0,
+            open_positions=0,
+            max_positions=5,
+            positions=[],
+            cooldowns={}
+        )
 
 @app.get("/api/risk/metrics", response_model=RiskMetricsModel)
 async def get_risk_metrics():
     """Get risk metrics for dashboard"""
     try:
         risk_data = risk_manager.get_risk_summary()
+        
+        # Handle case when no account info is available
+        if "error" in risk_data:
+            return RiskMetricsModel(
+                current_risk_percent=0.0,
+                max_risk_percent=8.0,
+                open_positions=0,
+                max_positions=5,
+                risk_thermometer=0,
+                cooldown_symbols=[]
+            )
         
         # Calculate risk thermometer (0-100)
         risk_percent = risk_data["current_risk_percent"]
@@ -316,7 +366,15 @@ async def get_risk_metrics():
         
     except Exception as e:
         logger.error(f"Error getting risk metrics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return default values instead of raising exception
+        return RiskMetricsModel(
+            current_risk_percent=0.0,
+            max_risk_percent=8.0,
+            open_positions=0,
+            max_positions=5,
+            risk_thermometer=0,
+            cooldown_symbols=[]
+        )
 
 # ===================
 # ==== Session Data ====
