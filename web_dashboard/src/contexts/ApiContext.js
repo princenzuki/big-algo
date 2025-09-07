@@ -189,6 +189,20 @@ export const ApiProvider = ({ children }) => {
     }
   };
 
+  // Get settings (alias for fetchSettings)
+  const getSettings = fetchSettings;
+
+  // Update settings
+  const updateSettings = async (settings) => {
+    try {
+      const response = await api.put('/config/settings', settings);
+      return response.data;
+    } catch (err) {
+      console.error('Error updating settings:', err);
+      throw err;
+    }
+  };
+
   // Fetch symbol configs
   const fetchSymbolConfigs = async () => {
     try {
@@ -269,6 +283,8 @@ export const ApiProvider = ({ children }) => {
     fetchAlgoHealth,
     fetchSystemStatus,
     fetchSettings,
+    getSettings,
+    updateSettings,
     fetchSymbolConfigs,
     exportTrades,
     downloadExport,

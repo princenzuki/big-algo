@@ -20,15 +20,56 @@ const Settings = () => {
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
+
+  // Default settings structure
+  const defaultSettings = {
+    timezone: 'UTC',
+    loop_interval: 60,
+    log_level: 'INFO',
+    cooldown_period: 15,
+    max_risk_percent: 5.0,
+    max_concurrent_trades: 5,
+    min_lot_size: 0.01,
+    max_lot_size: 1.0,
+    max_spread_pips: 3,
+    neighbors_count: 8,
+    max_bars_back: 100,
+    feature_count: 5,
+    color_compression: 0.1,
+    min_confidence_threshold: 0.6,
+    min_volatility: 0.5,
+    min_adx: 25,
+    allow_weekend_trading: false,
+    enable_news_filter: false,
+    symbols: {
+      EURUSD: { min_confidence: 0.7, enabled: true },
+      GBPUSD: { min_confidence: 0.7, enabled: true },
+      BTCUSD: { min_confidence: 0.6, enabled: true },
+      USDJPY: { min_confidence: 0.7, enabled: true },
+      AUDUSD: { min_confidence: 0.7, enabled: true }
+    },
+    notifications: {
+      email: false,
+      telegram: false,
+      dashboard: true
+    },
+    telegram_bot_token: '',
+    telegram_chat_id: ''
+  };
 
   const loadSettings = async () => {
     setLoading(true);
     try {
       const data = await getSettings();
-      setSettings(data);
+      // Merge with defaults to ensure all fields exist
+      setSettings({ ...defaultSettings, ...data });
+      setHasChanges(false);
     } catch (error) {
       console.error('Error loading settings:', error);
-      toast.error('Failed to load settings');
+      // Use defaults if API fails
+      setSettings(defaultSettings);
+      toast.error('Using default settings - API unavailable');
     } finally {
       setLoading(false);
     }
@@ -38,6 +79,7 @@ const Settings = () => {
     setSaving(true);
     try {
       await updateSettings(settings);
+      setHasChanges(false);
       toast.success('Settings saved successfully');
     } catch (error) {
       console.error('Error saving settings:', error);
@@ -45,6 +87,29 @@ const Settings = () => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSettingChange = (path, value) => {
+    const newSettings = { ...settings };
+    const keys = path.split('.');
+    let current = newSettings;
+    
+    for (let i = 0; i < keys.length - 1; i++) {
+      if (!current[keys[i]]) {
+        current[keys[i]] = {};
+      }
+      current = current[keys[i]];
+    }
+    
+    current[keys[keys.length - 1]] = value;
+    setSettings(newSettings);
+    setHasChanges(true);
+  };
+
+  const resetToDefaults = () => {
+    setSettings(defaultSettings);
+    setHasChanges(true);
+    toast.success('Settings reset to defaults');
   };
 
   useEffect(() => {
@@ -70,23 +135,39 @@ const Settings = () => {
         <div>
           <h1 className="text-3xl font-bold text-gradient">Algorithm Settings</h1>
           <p className="text-text-muted mt-2">Configure all trading algorithm parameters</p>
+          {settings && (
+            <div className="mt-2 flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${hasChanges ? 'bg-warning-400' : 'bg-success-400'}`}></div>
+              <span className="text-sm text-text-muted">
+                {hasChanges ? 'Unsaved changes' : 'All changes saved'}
+              </span>
+            </div>
+          )}
         </div>
         <div className="flex items-center space-x-3">
           <button
+            onClick={resetToDefaults}
+            className="btn btn-warning"
+            disabled={loading || saving}
+          >
+            <ExclamationTriangleIcon className="h-4 w-4" />
+            Reset to Defaults
+          </button>
+          <button
             onClick={loadSettings}
             className="btn btn-secondary"
-            disabled={loading}
+            disabled={loading || saving}
           >
             <ArrowPathIcon className="h-4 w-4" />
             Refresh
           </button>
           <button
             onClick={handleSave}
-            className="btn btn-primary"
-            disabled={saving}
+            className={`btn ${hasChanges ? 'btn-primary' : 'btn-secondary'}`}
+            disabled={saving || !hasChanges}
           >
             <ArrowDownTrayIcon className="h-4 w-4" />
-            {saving ? 'Saving...' : 'Save Changes'}
+            {saving ? 'Saving...' : hasChanges ? 'Save Changes' : 'No Changes'}
           </button>
         </div>
       </div>
@@ -107,7 +188,7 @@ const Settings = () => {
               <label className="block text-sm font-medium text-text-secondary mb-2">Timezone</label>
               <select
                 value={settings?.timezone || 'UTC'}
-                onChange={(e) => setSettings({ ...settings, timezone: e.target.value })}
+                onChange={(e) => handleSettingChange('timezone', e.target.value)}
                 className="select"
               >
                 <option value="UTC">UTC</option>
@@ -416,18 +497,53 @@ const Settings = () => {
               <input
                 type="number"
                 value={settings?.symbols?.BTCUSD?.min_confidence || 0.6}
-                onChange={(e) => setSettings({ 
-                  ...settings, 
-                  symbols: { 
-                    ...settings.symbols, 
-                    BTCUSD: { ...settings.symbols?.BTCUSD, min_confidence: parseFloat(e.target.value) }
-                  }
-                })}
+                onChange={(e) => handleSettingChange('symbols.BTCUSD.min_confidence', parseFloat(e.target.value))}
                 className="select"
                 min="0.1"
                 max="1"
                 step="0.1"
               />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-2">USDJPY Min Confidence</label>
+              <input
+                type="number"
+                value={settings?.symbols?.USDJPY?.min_confidence || 0.7}
+                onChange={(e) => handleSettingChange('symbols.USDJPY.min_confidence', parseFloat(e.target.value))}
+                className="select"
+                min="0.1"
+                max="1"
+                step="0.1"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-2">AUDUSD Min Confidence</label>
+              <input
+                type="number"
+                value={settings?.symbols?.AUDUSD?.min_confidence || 0.7}
+                onChange={(e) => handleSettingChange('symbols.AUDUSD.min_confidence', parseFloat(e.target.value))}
+                className="select"
+                min="0.1"
+                max="1"
+                step="0.1"
+              />
+            </div>
+            
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium text-text-secondary">Symbol Status</h4>
+              {Object.entries(settings?.symbols || {}).map(([symbol, config]) => (
+                <div key={symbol} className="flex items-center justify-between">
+                  <label className="text-sm text-text-muted">{symbol}</label>
+                  <input
+                    type="checkbox"
+                    checked={config?.enabled || false}
+                    onChange={(e) => handleSettingChange(`symbols.${symbol}.enabled`, e.target.checked)}
+                    className="w-4 h-4 text-primary-600 bg-dark-700 border-dark-600 rounded focus:ring-primary-500"
+                  />
+                </div>
+              ))}
             </div>
           </div>
         </div>
