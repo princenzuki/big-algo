@@ -1,422 +1,255 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  LineChart, 
-  Line, 
-  BarChart, 
-  Bar, 
-  PieChart, 
-  Pie, 
-  Cell, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  Legend, 
-  ResponsiveContainer 
-} from 'recharts';
-import { 
-  TrendingUpIcon, 
-  TrendingDownIcon, 
-  CurrencyDollarIcon,
+import React, { useEffect, useState } from 'react';
+import {
+  ArrowTrendingUpIcon,
+  ArrowTrendingDownIcon,
   ChartBarIcon,
+  CurrencyDollarIcon,
+  TrophyIcon,
+  HeartIcon,
   ClockIcon,
-  ExclamationTriangleIcon
+  ArrowPathIcon,
 } from '@heroicons/react/24/outline';
-import { useApi } from '../contexts/ApiContext';
-import MetricCard from '../components/MetricCard';
-import LoadingSpinner from '../components/LoadingSpinner';
 
 const Dashboard = () => {
-  const { dashboardData, loading, error, fetchPnLData } = useApi();
-  const [selectedPeriod, setSelectedPeriod] = useState('daily');
-  const [pnlData, setPnlData] = useState(null);
-  const [pnlLoading, setPnlLoading] = useState(false);
+  const [metrics, setMetrics] = useState({
+    total_trades: 0,
+    win_rate: 0,
+    profit_factor: 0,
+    net_profit: 0,
+  });
 
-  const periods = [
-    { value: 'daily', label: 'Daily' },
-    { value: 'weekly', label: 'Weekly' },
-    { value: 'monthly', label: 'Monthly' },
-    { value: 'quarterly', label: 'Quarterly' },
-    { value: 'yearly', label: 'Yearly' }
-  ];
+  const [algo_health, setAlgoHealth] = useState({
+    health_score: 0,
+    status: 'loading',
+  });
 
-  const COLORS = {
-    profit: '#22c55e',
-    loss: '#ef4444',
-    neutral: '#6b7280'
-  };
+  const [loading, setLoading] = useState(true);
+  const [lastUpdate, setLastUpdate] = useState(new Date());
 
   useEffect(() => {
-    const loadPnLData = async () => {
-      setPnlLoading(true);
+    const fetchData = async () => {
       try {
-        const data = await fetchPnLData(selectedPeriod);
-        setPnlData(data);
+        setLoading(true);
+        const [metricsRes, healthRes] = await Promise.all([
+          fetch('http://localhost:8000/metrics'),
+          fetch('http://localhost:8000/algo-health')
+        ]);
+        
+        const [metricsData, healthData] = await Promise.all([
+          metricsRes.json(),
+          healthRes.json()
+        ]);
+        
+        setMetrics(metricsData);
+        setAlgoHealth(healthData);
+        setLastUpdate(new Date());
       } catch (err) {
-        console.error('Error loading P&L data:', err);
+        console.error('Data fetch error:', err);
       } finally {
-        setPnlLoading(false);
+        setLoading(false);
       }
     };
 
-    loadPnLData();
-  }, [selectedPeriod, fetchPnLData]);
+    fetchData();
+    const interval = setInterval(fetchData, 30000); // Refresh every 30 seconds
+    return () => clearInterval(interval);
+  }, []);
 
-  if (loading) {
-    return <LoadingSpinner />;
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <ExclamationTriangleIcon className="h-12 w-12 text-danger-500 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Error Loading Dashboard</h3>
-          <p className="text-gray-500">{error}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!dashboardData) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <ChartBarIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No Data Available</h3>
-          <p className="text-gray-500">Dashboard data is not available at the moment.</p>
-        </div>
-      </div>
-    );
-  }
-
-  const { portfolio_stats, algo_health, risk_summary, session_info } = dashboardData;
-
-  // Prepare P&L chart data
-  const preparePnLChartData = (data) => {
-    if (!data || !data.data) return [];
-    
-    return data.data.map(item => ({
-      ...item,
-      pnl: parseFloat(item.pnl || 0)
-    }));
+  const formatLastUpdate = (date) => {
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d ago`;
   };
 
-  // Prepare win/loss pie chart data
-  const winLossData = [
-    { name: 'Wins', value: portfolio_stats.winning_trades, color: COLORS.profit },
-    { name: 'Losses', value: portfolio_stats.losing_trades, color: COLORS.loss }
-  ];
-
-  // Prepare confidence distribution pie chart data
-  const confidenceData = [
-    { name: 'High', value: dashboardData.confidence_distribution.high, color: COLORS.profit },
-    { name: 'Medium', value: dashboardData.confidence_distribution.medium, color: COLORS.neutral },
-    { name: 'Low', value: dashboardData.confidence_distribution.low, color: COLORS.loss }
-  ];
-
-  // Calculate equity curve data
-  const equityCurveData = preparePnLChartData(pnlData).map((item, index) => ({
-    ...item,
-    cumulative: preparePnLChartData(pnlData)
-      .slice(0, index + 1)
-      .reduce((sum, item) => sum + item.pnl, 0)
-  }));
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Trading Dashboard</h1>
-          <p className="text-gray-500">Monitor your Lorentzian ML trading performance</p>
+          <h1 className="text-3xl font-bold text-gradient">Trading Dashboard</h1>
+          <p className="text-text-muted mt-2">Real-time monitoring of your BigAlgo FinTech trading system</p>
         </div>
-        <div className="flex items-center space-x-2">
-          <ClockIcon className="h-5 w-5 text-gray-400" />
-          <span className="text-sm text-gray-500">
-            {session_info.current_session} session
-          </span>
+        <div className="flex items-center space-x-4">
+          <div className="text-sm text-text-muted bg-dark-800/50 px-3 py-2 rounded-lg border border-dark-600 flex items-center gap-2">
+            <ClockIcon className="h-4 w-4" />
+            Last updated: {formatLastUpdate(lastUpdate)}
+          </div>
+          <button
+            onClick={() => window.location.reload()}
+            disabled={loading}
+            className="btn btn-primary"
+          >
+            {loading ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Refreshing...
+              </>
+            ) : (
+              <>
+                <ArrowPathIcon className="h-4 w-4" />
+                Refresh
+              </>
+            )}
+          </button>
         </div>
       </div>
 
-      {/* Key Metrics */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricCard
-          title="Total P&L"
-          value={`$${portfolio_stats.total_pnl.toFixed(2)}`}
-          change={portfolio_stats.total_pnl >= 0 ? 'positive' : 'negative'}
-          icon={CurrencyDollarIcon}
-        />
-        <MetricCard
-          title="Win Rate"
-          value={`${portfolio_stats.win_rate.toFixed(1)}%`}
-          change={portfolio_stats.win_rate >= 50 ? 'positive' : 'negative'}
-          icon={TrendingUpIcon}
-        />
+      {/* Status Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
           title="Total Trades"
-          value={portfolio_stats.total_trades.toString()}
-          change="neutral"
+          value={metrics.total_trades}
+          change={metrics.total_trades > 0 ? 'positive' : 'neutral'}
           icon={ChartBarIcon}
+          delay="0s"
         />
+
         <MetricCard
-          title="Health Score"
-          value={`${algo_health.health_score}/100`}
-          change={algo_health.health_score >= 80 ? 'positive' : algo_health.health_score >= 60 ? 'warning' : 'negative'}
-          icon={algo_health.status === 'healthy' ? TrendingUpIcon : TrendingDownIcon}
+          title="Win Rate"
+          value={`${metrics.win_rate}%`}
+          change={metrics.win_rate >= 50 ? 'positive' : 'negative'}
+          icon={metrics.win_rate >= 50 ? ArrowTrendingUpIcon : ArrowTrendingDownIcon}
+          delay="0.1s"
+        />
+
+        <MetricCard
+          title="Profit Factor"
+          value={metrics.profit_factor}
+          change={metrics.profit_factor >= 1.5 ? 'positive' : 'negative'}
+          icon={metrics.profit_factor >= 1.5 ? ArrowTrendingUpIcon : ArrowTrendingDownIcon}
+          delay="0.2s"
+        />
+
+        <MetricCard
+          title="Net Profit"
+          value={`$${metrics.net_profit}`}
+          change={metrics.net_profit >= 0 ? 'positive' : 'negative'}
+          icon={metrics.net_profit >= 0 ? CurrencyDollarIcon : ArrowTrendingDownIcon}
+          delay="0.3s"
         />
       </div>
 
-      {/* P&L Charts */}
+      {/* Health Score Card */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Equity Curve */}
-        <div className="card">
+        <MetricCard
+          title="System Health"
+          value={`${algo_health.health_score}/100`}
+          change={
+            algo_health.health_score >= 80
+              ? 'positive'
+              : algo_health.health_score >= 60
+              ? 'warning'
+              : 'negative'
+          }
+          icon={HeartIcon}
+          delay="0.4s"
+          large={true}
+        />
+        
+        <div className="card bounce-in" style={{ animationDelay: '0.5s' }}>
           <div className="card-header">
             <div className="flex items-center justify-between">
-              <div>
-                <h3 className="card-title">Equity Curve</h3>
-                <p className="card-subtitle">Cumulative P&L over time</p>
+              <h3 className="card-title">System Status</h3>
+              <div className="p-3 bg-primary-500/20 rounded-xl border border-primary-500/30">
+                <TrophyIcon className="h-6 w-6 text-primary-400" />
               </div>
-              <select
-                value={selectedPeriod}
-                onChange={(e) => setSelectedPeriod(e.target.value)}
-                className="select text-sm"
-              >
-                {periods.map(period => (
-                  <option key={period.value} value={period.value}>
-                    {period.label}
-                  </option>
-                ))}
-              </select>
             </div>
-          </div>
-          <div className="h-80">
-            {pnlLoading ? (
-              <div className="flex items-center justify-center h-full">
-                <LoadingSpinner />
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={equityCurveData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis 
-                    dataKey={selectedPeriod === 'daily' ? 'date' : selectedPeriod === 'weekly' ? 'week' : selectedPeriod === 'monthly' ? 'month' : selectedPeriod === 'quarterly' ? 'quarter' : 'year'}
-                    tick={{ fontSize: 12 }}
-                  />
-                  <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip 
-                    formatter={(value) => [`$${value.toFixed(2)}`, 'Cumulative P&L']}
-                    labelStyle={{ color: '#374151' }}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="cumulative" 
-                    stroke={COLORS.profit} 
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-
-        {/* P&L Bar Chart */}
-        <div className="card">
-          <div className="card-header">
-            <h3 className="card-title">P&L by Period</h3>
-            <p className="card-subtitle">Profit/Loss breakdown</p>
-          </div>
-          <div className="h-80">
-            {pnlLoading ? (
-              <div className="flex items-center justify-center h-full">
-                <LoadingSpinner />
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={preparePnLChartData(pnlData)}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis 
-                    dataKey={selectedPeriod === 'daily' ? 'date' : selectedPeriod === 'weekly' ? 'week' : selectedPeriod === 'monthly' ? 'month' : selectedPeriod === 'quarterly' ? 'quarter' : 'year'}
-                    tick={{ fontSize: 12 }}
-                  />
-                  <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip 
-                    formatter={(value) => [`$${value.toFixed(2)}`, 'P&L']}
-                    labelStyle={{ color: '#374151' }}
-                  />
-                  <Bar 
-                    dataKey="pnl" 
-                    fill={(entry) => entry.pnl >= 0 ? COLORS.profit : COLORS.loss}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Win/Loss and Confidence Distribution */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Win/Loss Ratio */}
-        <div className="card">
-          <div className="card-header">
-            <h3 className="card-title">Win/Loss Ratio</h3>
-            <p className="card-subtitle">Trade outcome distribution</p>
-          </div>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={winLossData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {winLossData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value) => [value, 'Trades']} />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Confidence Distribution */}
-        <div className="card">
-          <div className="card-header">
-            <h3 className="card-title">Confidence Distribution</h3>
-            <p className="card-subtitle">ML confidence levels</p>
-          </div>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={confidenceData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {confidenceData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value) => [value, 'Trades']} />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
-
-      {/* Additional Stats */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="card">
-          <div className="card-header">
-            <h3 className="card-title">Performance Metrics</h3>
+            <p className="card-subtitle">Overall system performance</p>
           </div>
           <div className="space-y-4">
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-500">Avg Win</span>
-              <span className="text-sm font-medium text-success-600">
-                ${portfolio_stats.avg_win.toFixed(2)}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-500">Avg Loss</span>
-              <span className="text-sm font-medium text-danger-600">
-                ${portfolio_stats.avg_loss.toFixed(2)}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-500">Profit Factor</span>
-              <span className="text-sm font-medium text-gray-900">
-                {portfolio_stats.profit_factor.toFixed(2)}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-500">Max Drawdown</span>
-              <span className="text-sm font-medium text-danger-600">
-                ${portfolio_stats.max_drawdown.toFixed(2)}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-header">
-            <h3 className="card-title">Risk Status</h3>
-          </div>
-          <div className="space-y-4">
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-500">Current Risk</span>
-              <span className="text-sm font-medium text-gray-900">
-                {risk_summary.current_risk_percent.toFixed(1)}%
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-500">Max Risk</span>
-              <span className="text-sm font-medium text-gray-900">
-                {risk_summary.max_risk_percent.toFixed(1)}%
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-500">Open Positions</span>
-              <span className="text-sm font-medium text-gray-900">
-                {risk_summary.open_positions}/{risk_summary.max_positions}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-500">Account Equity</span>
-              <span className="text-sm font-medium text-gray-900">
-                ${risk_summary.account_equity.toFixed(2)}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-header">
-            <h3 className="card-title">Algo Health</h3>
-          </div>
-          <div className="space-y-4">
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-500">Uptime</span>
-              <span className="text-sm font-medium text-gray-900">
-                {algo_health.uptime_hours.toFixed(1)}h
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-500">Success Rate</span>
-              <span className="text-sm font-medium text-gray-900">
-                {algo_health.trade_execution_success_rate.toFixed(1)}%
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-500">Avg Confidence</span>
-              <span className="text-sm font-medium text-gray-900">
-                {(algo_health.avg_trade_confidence * 100).toFixed(1)}%
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-500">Status</span>
-              <span className={`text-sm font-medium ${
-                algo_health.status === 'healthy' ? 'text-success-600' :
-                algo_health.status === 'warning' ? 'text-warning-600' :
-                'text-danger-600'
+            <div className="flex items-center justify-between">
+              <span className="text-text-muted">Algorithm Status</span>
+              <span className={`status-badge ${
+                algo_health.status === 'healthy' ? 'positive' : 
+                algo_health.status === 'warning' ? 'warning' : 'danger'
               }`}>
-                {algo_health.status.charAt(0).toUpperCase() + algo_health.status.slice(1)}
+                {algo_health.status}
               </span>
             </div>
+            <div className="flex items-center justify-between">
+              <span className="text-text-muted">Health Score</span>
+              <span className="text-text-primary font-mono font-bold">
+                {algo_health.health_score}/100
+              </span>
+            </div>
+            <div className="w-full bg-dark-700 rounded-full h-2">
+              <div 
+                className={`h-2 rounded-full transition-all duration-1000 ${
+                  algo_health.health_score >= 80 ? 'bg-success-500' :
+                  algo_health.health_score >= 60 ? 'bg-warning-500' : 'bg-danger-500'
+                }`}
+                style={{ width: `${algo_health.health_score}%` }}
+              ></div>
+            </div>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const MetricCard = ({ title, value, change, icon: Icon, delay = "0s", large = false }) => {
+  const changeColors = {
+    positive: 'text-success-400',
+    negative: 'text-danger-400',
+    warning: 'text-warning-400',
+    neutral: 'text-text-muted',
+  };
+
+  const iconColors = {
+    positive: 'text-success-400',
+    negative: 'text-danger-400',
+    warning: 'text-warning-400',
+    neutral: 'text-text-muted',
+  };
+
+  const iconBgColors = {
+    positive: 'bg-success-500/20 border-success-500/30',
+    negative: 'bg-danger-500/20 border-danger-500/30',
+    warning: 'bg-warning-500/20 border-warning-500/30',
+    neutral: 'bg-dark-700/50 border-dark-600',
+  };
+
+  return (
+    <div className={`card slide-in-right ${large ? 'lg:col-span-1' : ''}`} style={{ animationDelay: delay }}>
+      <div className="card-header">
+        <div className="flex items-center justify-between">
+          <h3 className="card-title">{title}</h3>
+          <div className={`p-3 rounded-xl border ${iconBgColors[change] || iconBgColors.neutral}`}>
+            <Icon className={`h-6 w-6 ${iconColors[change] || iconColors.neutral}`} />
+          </div>
+        </div>
+        <p className="card-subtitle">
+          {change === 'positive'
+            ? 'Improving'
+            : change === 'negative'
+            ? 'Declining'
+            : change === 'warning'
+            ? 'At Risk'
+            : 'Stable'}
+        </p>
+      </div>
+      <div className={`font-mono font-bold ${large ? 'text-5xl' : 'text-4xl'} text-text-primary`}>
+        {value}
+      </div>
+      <div className="mt-4">
+        <div className="flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full ${
+            change === 'positive' ? 'bg-success-500 animate-pulse' :
+            change === 'negative' ? 'bg-danger-500' :
+            change === 'warning' ? 'bg-warning-500' : 'bg-text-muted'
+          }`} />
+          <span className={`text-sm font-medium ${changeColors[change] || changeColors.neutral}`}>
+            {change === 'positive' ? 'Trending Up' :
+             change === 'negative' ? 'Trending Down' :
+             change === 'warning' ? 'Caution' : 'Neutral'}
+          </span>
         </div>
       </div>
     </div>

@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Trades from './pages/Trades';
+import AIInsights from './pages/AIInsights';
 import Risk from './pages/Risk';
 import Health from './pages/Health';
 import Settings from './pages/Settings';
@@ -18,6 +19,7 @@ function App() {
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/trades" element={<Trades />} />
+              <Route path="/ai-insights" element={<AIInsights />} />
               <Route path="/risk" element={<Risk />} />
               <Route path="/health" element={<Health />} />
               <Route path="/settings" element={<Settings />} />

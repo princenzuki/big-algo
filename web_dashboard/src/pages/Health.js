@@ -5,7 +5,14 @@ import {
   CheckCircleIcon,
   ClockIcon,
   ChartBarIcon,
-  CpuChipIcon
+  CpuChipIcon,
+  PlayIcon,
+  PauseIcon,
+  StopIcon,
+  ArrowPathIcon,
+  BoltIcon,
+  ExclamationCircleIcon,
+  InformationCircleIcon
 } from '@heroicons/react/24/outline';
 import { useApi } from '../contexts/ApiContext';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -15,6 +22,9 @@ const Health = () => {
   const [algoHealth, setAlgoHealth] = useState(null);
   const [systemStatus, setSystemStatus] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [errorLogs, setErrorLogs] = useState([]);
+  const [latencyMetrics, setLatencyMetrics] = useState(null);
+  const [performanceScore, setPerformanceScore] = useState(null);
 
   useEffect(() => {
     loadHealthData();
@@ -87,6 +97,86 @@ const Health = () => {
         <div className="flex items-center space-x-2">
           <HeartIcon className="h-6 w-6 text-primary-500" />
           <span className="text-sm font-medium text-gray-700">Health Monitor</span>
+        </div>
+      </div>
+
+      {/* Real-time Bot State */}
+      <div className="card bounce-in">
+        <div className="card-header">
+          <div className="flex items-center justify-between">
+            <h3 className="card-title">Bot State & Controls</h3>
+            <div className="flex items-center gap-2">
+              <div className={`w-3 h-3 rounded-full ${
+                systemStatus?.bot_state === 'running' ? 'bg-success-500 animate-pulse' :
+                systemStatus?.bot_state === 'paused' ? 'bg-warning-500' :
+                systemStatus?.bot_state === 'stopped' ? 'bg-danger-500' : 'bg-gray-500'
+              }`} />
+              <span className="text-sm font-medium text-text-secondary capitalize">
+                {systemStatus?.bot_state || 'Unknown'}
+              </span>
+            </div>
+          </div>
+          <p className="card-subtitle">Real-time bot status and control</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="flex items-center justify-between p-4 bg-dark-800/50 rounded-lg border border-dark-600">
+            <div className="flex items-center gap-3">
+              <ClockIcon className="h-6 w-6 text-primary-400" />
+              <div>
+                <p className="text-sm text-text-muted">Uptime</p>
+                <p className="text-lg font-bold text-text-primary font-mono">
+                  {formatUptime(algoHealth?.uptime_hours || 0)}
+                </p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex items-center justify-between p-4 bg-dark-800/50 rounded-lg border border-dark-600">
+            <div className="flex items-center gap-3">
+              <BoltIcon className="h-6 w-6 text-success-400" />
+              <div>
+                <p className="text-sm text-text-muted">Last Signal</p>
+                <p className="text-lg font-bold text-text-primary font-mono">
+                  {systemStatus?.last_signal_time ? 
+                    new Date(systemStatus.last_signal_time).toLocaleTimeString() : 
+                    'Never'
+                  }
+                </p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex items-center justify-between p-4 bg-dark-800/50 rounded-lg border border-dark-600">
+            <div className="flex items-center gap-3">
+              <ArrowPathIcon className="h-6 w-6 text-warning-400" />
+              <div>
+                <p className="text-sm text-text-muted">Restart Count</p>
+                <p className="text-lg font-bold text-text-primary font-mono">
+                  {systemStatus?.restart_count || 0}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        {/* Bot Control Buttons */}
+        <div className="flex items-center gap-3 mt-4">
+          <button className="btn btn-success btn-sm">
+            <PlayIcon className="h-4 w-4" />
+            Start
+          </button>
+          <button className="btn btn-warning btn-sm">
+            <PauseIcon className="h-4 w-4" />
+            Pause
+          </button>
+          <button className="btn btn-danger btn-sm">
+            <StopIcon className="h-4 w-4" />
+            Stop
+          </button>
+          <button className="btn btn-secondary btn-sm">
+            <ArrowPathIcon className="h-4 w-4" />
+            Restart
+          </button>
         </div>
       </div>
 
@@ -302,15 +392,124 @@ const Health = () => {
         </div>
       )}
 
+      {/* Error Logs & Performance */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Error Logs */}
+        <div className="card fade-in-up">
+          <div className="card-header">
+            <div className="flex items-center justify-between">
+              <h3 className="card-title">Error Logs</h3>
+              <div className="flex items-center gap-2">
+                <ExclamationCircleIcon className="h-5 w-5 text-danger-400" />
+                <span className="text-sm text-text-muted">Last 10 errors</span>
+              </div>
+            </div>
+            <p className="card-subtitle">Recent system errors and exceptions</p>
+          </div>
+          <div className="space-y-3 max-h-64 overflow-y-auto">
+            {errorLogs.length === 0 ? (
+              <div className="text-center py-8 text-text-muted">
+                <CheckCircleIcon className="h-12 w-12 mx-auto mb-2 text-success-400" />
+                <p>No recent errors</p>
+              </div>
+            ) : (
+              errorLogs.map((error, index) => (
+                <div key={index} className="p-3 bg-dark-800/50 rounded-lg border border-dark-600">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-text-primary">{error.type}</p>
+                      <p className="text-xs text-text-muted mt-1">{error.message}</p>
+                    </div>
+                    <div className="text-xs text-text-muted ml-3">
+                      {new Date(error.timestamp).toLocaleTimeString()}
+                    </div>
+                  </div>
+                  {error.details && (
+                    <div className="mt-2 p-2 bg-dark-700/50 rounded text-xs text-text-muted font-mono">
+                      {error.details}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Performance Metrics */}
+        <div className="card fade-in-up" style={{ animationDelay: '0.2s' }}>
+          <div className="card-header">
+            <div className="flex items-center justify-between">
+              <h3 className="card-title">Performance Metrics</h3>
+              <div className="flex items-center gap-2">
+                <BoltIcon className="h-5 w-5 text-primary-400" />
+                <span className="text-sm text-text-muted">Real-time</span>
+              </div>
+            </div>
+            <p className="card-subtitle">Signal execution and latency metrics</p>
+          </div>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-3 bg-dark-800/50 rounded-lg border border-dark-600">
+              <div className="flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-success-500 animate-pulse" />
+                <span className="text-sm text-text-muted">Signal Execution Success</span>
+              </div>
+              <span className="text-lg font-bold text-success-400 font-mono">
+                {performanceScore?.signal_execution_success_rate?.toFixed(1) || 0}%
+              </span>
+            </div>
+            
+            <div className="flex items-center justify-between p-3 bg-dark-800/50 rounded-lg border border-dark-600">
+              <div className="flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-primary-500" />
+                <span className="text-sm text-text-muted">Avg Latency</span>
+              </div>
+              <span className="text-lg font-bold text-primary-400 font-mono">
+                {latencyMetrics?.avg_signal_latency_ms || 0}ms
+              </span>
+            </div>
+            
+            <div className="flex items-center justify-between p-3 bg-dark-800/50 rounded-lg border border-dark-600">
+              <div className="flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-warning-500" />
+                <span className="text-sm text-text-muted">Max Latency</span>
+              </div>
+              <span className="text-lg font-bold text-warning-400 font-mono">
+                {latencyMetrics?.max_signal_latency_ms || 0}ms
+              </span>
+            </div>
+            
+            <div className="flex items-center justify-between p-3 bg-dark-800/50 rounded-lg border border-dark-600">
+              <div className="flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-purple-500" />
+                <span className="text-sm text-text-muted">Break-even Hits</span>
+              </div>
+              <span className="text-lg font-bold text-purple-400 font-mono">
+                {performanceScore?.break_even_hits || 0}
+              </span>
+            </div>
+            
+            <div className="flex items-center justify-between p-3 bg-dark-800/50 rounded-lg border border-dark-600">
+              <div className="flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-danger-500" />
+                <span className="text-sm text-text-muted">Stop-loss Hits</span>
+              </div>
+              <span className="text-lg font-bold text-danger-400 font-mono">
+                {performanceScore?.stop_loss_hits || 0}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Health History Chart would go here */}
       <div className="card">
         <div className="card-header">
           <h3 className="card-title">Health History</h3>
           <p className="card-subtitle">Health score over time</p>
         </div>
-        <div className="h-64 flex items-center justify-center text-gray-500">
+        <div className="h-64 flex items-center justify-center text-text-muted">
           <div className="text-center">
-            <ChartBarIcon className="h-12 w-12 mx-auto mb-2 text-gray-400" />
+            <ChartBarIcon className="h-12 w-12 mx-auto mb-2 text-text-muted/50" />
             <p>Health history chart coming soon</p>
           </div>
         </div>
