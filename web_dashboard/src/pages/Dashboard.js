@@ -9,6 +9,9 @@ import {
   ClockIcon,
   ArrowPathIcon,
   CheckIcon,
+  ExclamationTriangleIcon,
+  ArrowUpIcon,
+  ArrowDownIcon,
 } from '@heroicons/react/24/outline';
 import API_ENDPOINTS from '../config/api';
 import toast from 'react-hot-toast';
@@ -19,17 +22,31 @@ const Dashboard = () => {
     win_rate: 0,
     profit_factor: 0,
     net_profit: 0,
+    total_pnl: 0,
+    avg_trade_duration: 0,
+    max_drawdown: 0,
+    sharpe_ratio: 0,
   });
 
   const [algo_health, setAlgoHealth] = useState({
     health_score: 0,
     status: 'loading',
+    uptime_hours: 0,
+    last_signal_time: null,
+    restart_count: 0,
+    error_count: 0,
   });
 
   const [account_data, setAccountData] = useState({
     account_balance: 0,
     account_equity: 0,
+    margin_level: 0,
+    free_margin: 0,
+    used_margin: 0,
   });
+
+  const [live_trades, setLiveTrades] = useState([]);
+  const [recent_errors, setRecentErrors] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -39,35 +56,80 @@ const Dashboard = () => {
     try {
       if (showToast) {
         setRefreshing(true);
-        toast.loading('Refreshing data...', { id: 'refresh' });
+        toast.loading('Refreshing live data...', { id: 'refresh' });
       } else {
         setLoading(true);
       }
       
-      const [metricsRes, healthRes, accountRes] = await Promise.all([
+      // Fetch all live data in parallel
+      const [
+        metricsRes, 
+        healthRes, 
+        accountRes, 
+        tradesRes, 
+        errorsRes
+      ] = await Promise.all([
         fetch(API_ENDPOINTS.TRADES_STATS),
         fetch(API_ENDPOINTS.ALGO_HEALTH),
-        fetch(API_ENDPOINTS.RISK_SUMMARY)
+        fetch(API_ENDPOINTS.RISK_SUMMARY),
+        fetch(API_ENDPOINTS.OPEN_TRADES),
+        fetch(API_ENDPOINTS.SYSTEM_STATUS)
       ]);
       
-      const [metricsData, healthData, accountData] = await Promise.all([
+      const [
+        metricsData, 
+        healthData, 
+        accountData, 
+        tradesData, 
+        errorsData
+      ] = await Promise.all([
         metricsRes.json(),
         healthRes.json(),
-        accountRes.json()
+        accountRes.json(),
+        tradesRes.json(),
+        errorsRes.json()
       ]);
       
-      setMetrics(metricsData);
-      setAlgoHealth(healthData);
-      setAccountData(accountData);
+      // Update all state with live data
+      setMetrics({
+        total_trades: metricsData.total_trades || 0,
+        win_rate: metricsData.win_rate || 0,
+        profit_factor: metricsData.profit_factor || 0,
+        net_profit: metricsData.net_profit || 0,
+        total_pnl: metricsData.total_pnl || 0,
+        avg_trade_duration: metricsData.avg_trade_duration || 0,
+        max_drawdown: metricsData.max_drawdown || 0,
+        sharpe_ratio: metricsData.sharpe_ratio || 0,
+      });
+      
+      setAlgoHealth({
+        health_score: healthData.health_score || 0,
+        status: healthData.status || 'unknown',
+        uptime_hours: healthData.uptime_hours || 0,
+        last_signal_time: healthData.last_signal_time || null,
+        restart_count: healthData.restart_count || 0,
+        error_count: healthData.error_count || 0,
+      });
+      
+      setAccountData({
+        account_balance: accountData.account_balance || 0,
+        account_equity: accountData.account_equity || 0,
+        margin_level: accountData.margin_level || 0,
+        free_margin: accountData.free_margin || 0,
+        used_margin: accountData.used_margin || 0,
+      });
+      
+      setLiveTrades(tradesData || []);
+      setRecentErrors(errorsData.recent_errors || []);
       setLastUpdate(new Date());
       
       if (showToast) {
-        toast.success('Data refreshed successfully!', { id: 'refresh' });
+        toast.success(`Live data updated! ${tradesData?.length || 0} open trades`, { id: 'refresh' });
       }
     } catch (err) {
       console.error('Data fetch error:', err);
       if (showToast) {
-        toast.error('Failed to refresh data', { id: 'refresh' });
+        toast.error('Failed to refresh live data', { id: 'refresh' });
       }
     } finally {
       setLoading(false);
@@ -170,7 +232,7 @@ const Dashboard = () => {
 
         <MetricCard
           title="Net Profit"
-          value={`$${metrics.net_profit}`}
+          value={`$${metrics.net_profit?.toLocaleString() || '0'}`}
           change={metrics.net_profit >= 0 ? 'positive' : 'negative'}
           icon={metrics.net_profit >= 0 ? CurrencyDollarIcon : ArrowTrendingDownIcon}
           delay="0.4s"
@@ -236,6 +298,108 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
+
+      {/* Live Trades Section */}
+      {live_trades.length > 0 && (
+        <div className="card">
+          <div className="card-header">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <ChartBarIcon className="h-6 w-6 text-primary-400" />
+                <h3 className="card-title">Live Open Trades</h3>
+                <span className="badge badge-info">{live_trades.length}</span>
+              </div>
+              <button
+                onClick={() => window.location.href = '/trades'}
+                className="btn btn-sm btn-secondary"
+              >
+                View All Trades
+              </button>
+            </div>
+            <p className="card-subtitle">Real-time trading positions</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead className="table-header">
+                <tr>
+                  <th className="table-header-cell">Symbol</th>
+                  <th className="table-header-cell">Side</th>
+                  <th className="table-header-cell">Size</th>
+                  <th className="table-header-cell">Entry Price</th>
+                  <th className="table-header-cell">Current P&L</th>
+                  <th className="table-header-cell">Confidence</th>
+                  <th className="table-header-cell">Time</th>
+                </tr>
+              </thead>
+              <tbody className="table-body">
+                {live_trades.slice(0, 5).map((trade) => (
+                  <tr key={trade.id} className="table-row">
+                    <td className="table-cell font-medium">{trade.symbol}</td>
+                    <td className="table-cell">
+                      <div className="flex items-center">
+                        {trade.side === 'long' ? (
+                          <ArrowUpIcon className="h-4 w-4 text-success-500" />
+                        ) : (
+                          <ArrowDownIcon className="h-4 w-4 text-danger-500" />
+                        )}
+                        <span className="ml-2 capitalize">{trade.side}</span>
+                      </div>
+                    </td>
+                    <td className="table-cell">{trade.lot_size}</td>
+                    <td className="table-cell">{trade.entry_price?.toFixed(5) || 'N/A'}</td>
+                    <td className={`table-cell font-medium ${trade.pnl >= 0 ? 'text-success-600' : 'text-danger-600'}`}>
+                      {trade.pnl ? `$${trade.pnl.toFixed(2)}` : 'N/A'}
+                    </td>
+                    <td className="table-cell">
+                      <div className="flex items-center">
+                        <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
+                          <div
+                            className="bg-primary-600 h-2 rounded-full"
+                            style={{ width: `${(trade.confidence || 0) * 100}%` }}
+                          />
+                        </div>
+                        <span className="text-sm text-gray-500">
+                          {trade.confidence ? (trade.confidence * 100).toFixed(0) : '0'}%
+                        </span>
+                      </div>
+                    </td>
+                    <td className="table-cell text-sm text-gray-500">
+                      {new Date(trade.entry_time).toLocaleTimeString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Recent Errors Section */}
+      {recent_errors.length > 0 && (
+        <div className="card">
+          <div className="card-header">
+            <div className="flex items-center gap-3">
+              <ExclamationTriangleIcon className="h-6 w-6 text-warning-400" />
+              <h3 className="card-title">Recent Errors</h3>
+              <span className="badge badge-warning">{recent_errors.length}</span>
+            </div>
+            <p className="card-subtitle">Latest system errors and warnings</p>
+          </div>
+          <div className="space-y-3">
+            {recent_errors.slice(0, 3).map((error, index) => (
+              <div key={index} className="flex items-start gap-3 p-3 bg-warning-500/10 rounded-lg border border-warning-500/20">
+                <ExclamationTriangleIcon className="h-5 w-5 text-warning-500 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-warning-800">{error.message || 'Unknown error'}</p>
+                  <p className="text-xs text-warning-600 mt-1">
+                    {new Date(error.timestamp).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

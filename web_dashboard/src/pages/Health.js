@@ -52,8 +52,32 @@ const Health = () => {
       } else {
         setBotStatus('stopped');
       }
+      
+      // Generate mock error logs for demonstration
+      const mockErrors = [
+        { message: "Connection timeout to MT5 server", timestamp: new Date(Date.now() - 300000) },
+        { message: "Low confidence signal generated", timestamp: new Date(Date.now() - 600000) },
+        { message: "Risk limit exceeded for EURUSD", timestamp: new Date(Date.now() - 900000) },
+      ];
+      setErrorLogs(mockErrors);
+      
+      // Generate mock latency metrics
+      setLatencyMetrics({
+        avg_latency: Math.random() * 100 + 50,
+        max_latency: Math.random() * 200 + 100,
+        min_latency: Math.random() * 50 + 10
+      });
+      
+      // Generate mock performance score
+      setPerformanceScore({
+        signal_execution_success_rate: Math.random() * 20 + 80,
+        break_even_hits: Math.floor(Math.random() * 5),
+        stop_loss_hits: Math.floor(Math.random() * 3)
+      });
+      
     } catch (err) {
       console.error('Error loading health data:', err);
+      toast.error('Failed to load health data');
     } finally {
       setLoading(false);
     }

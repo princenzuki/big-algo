@@ -32,6 +32,14 @@ const Trades = () => {
   useEffect(() => {
     loadTrades();
     loadTradeStats();
+    
+    // Set up real-time updates every 10 seconds
+    const interval = setInterval(() => {
+      loadTrades();
+      loadTradeStats();
+    }, 10000);
+    
+    return () => clearInterval(interval);
   }, [activeTab, selectedSymbol]);
 
   const loadTrades = async () => {
@@ -47,9 +55,24 @@ const Trades = () => {
           data = data.filter(trade => trade.status === activeTab);
         }
       }
+      
+      // Sort trades by entry time (newest first)
+      data.sort((a, b) => new Date(b.entry_time) - new Date(a.entry_time));
       setTrades(data);
+      
+      // Update tab counts
+      const openTrades = data.filter(t => t.status === 'open').length;
+      const closedTrades = data.filter(t => t.status === 'closed').length;
+      const analyzingTrades = data.filter(t => t.status === 'analyzing').length;
+      
+      // Update tabs with real counts
+      tabs[0].count = openTrades;
+      tabs[1].count = closedTrades;
+      tabs[2].count = analyzingTrades;
+      
     } catch (err) {
       console.error('Error loading trades:', err);
+      toast.error('Failed to load trades data');
     } finally {
       setLoading(false);
     }
