@@ -28,7 +28,7 @@ class SessionManager:
     Manages trading sessions and weekend blocking
     
     Implements the weekend block rule: No trading (except BTCUSD) 
-    from Friday 23:55 to Sunday 00:05 Kenya time.
+    from Friday 23:55 to Monday 00:05 Kenya time.
     """
     
     def __init__(self):
@@ -37,7 +37,7 @@ class SessionManager:
         
         # Weekend block times (Nairobi time)
         self.weekend_start = time(23, 55)  # Friday 23:55
-        self.weekend_end = time(0, 5)      # Sunday 00:05
+        self.weekend_end = time(0, 5)      # Monday 00:05
         
         # Session times (Nairobi time)
         self.london_start = time(10, 0)    # 10:00 AM
@@ -93,8 +93,10 @@ class SessionManager:
         elif current_weekday == 5:  # Saturday
             return True, f"WEEKEND_BLOCK (Saturday {current_time_only.strftime('%H:%M')})"
         elif current_weekday == 6:  # Sunday
+            return True, f"WEEKEND_BLOCK (Sunday {current_time_only.strftime('%H:%M')})"
+        elif current_weekday == 0:  # Monday
             if current_time_only <= self.weekend_end:
-                return True, f"WEEKEND_BLOCK (Sunday {current_time_only.strftime('%H:%M')} <= {self.weekend_end.strftime('%H:%M')})"
+                return True, f"WEEKEND_BLOCK (Monday {current_time_only.strftime('%H:%M')} <= {self.weekend_end.strftime('%H:%M')})"
         
         return False, "OK"
     

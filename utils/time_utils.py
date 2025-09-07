@@ -110,15 +110,17 @@ def is_weekend_blocked(dt: Optional[datetime] = None) -> Tuple[bool, str]:
     weekday = dt.weekday()
     time_only = dt.time()
     
-    # Weekend block: Friday 23:55 to Sunday 00:05
+    # Weekend block: Friday 23:55 to Monday 00:05
     if weekday == 4:  # Friday
         if time_only >= dt.replace(hour=23, minute=55, second=0, microsecond=0).time():
             return True, "WEEKEND_BLOCK_FRIDAY"
     elif weekday == 5:  # Saturday
         return True, "WEEKEND_BLOCK_SATURDAY"
     elif weekday == 6:  # Sunday
+        return True, "WEEKEND_BLOCK_SUNDAY"
+    elif weekday == 0:  # Monday
         if time_only <= dt.replace(hour=0, minute=5, second=0, microsecond=0).time():
-            return True, "WEEKEND_BLOCK_SUNDAY"
+            return True, "WEEKEND_BLOCK_MONDAY"
     
     return False, "OK"
 

@@ -467,6 +467,10 @@ class LorentzianTradingBot:
             logger.info(f"[MTF_VALIDATION] {symbol} | Confidence: {original_confidence:.3f} -> {confidence:.3f} (+{mtf_result.confidence_boost:.3f})")
             logger.info(f"[MTF_VALIDATION] {symbol} | Lot Multiplier: {mtf_result.lot_multiplier:.2f} | TP Multiplier: {mtf_result.tp_multiplier:.2f}")
             
+            # Log MTF decision with scenario label
+            confidence_str = f"+{mtf_result.confidence_boost:.1f}" if mtf_result.confidence_boost > 0 else f"{mtf_result.confidence_boost:.1f}"
+            logger.info(f"[MTF Decision] {mtf_result.scenario_label} → Lot={mtf_result.lot_multiplier:.1f}x, TP={mtf_result.tp_multiplier:.1f}x, Confidence={confidence_str}")
+            
             # Determine trade side
             side = 'buy' if signal > 0 else 'sell'
             

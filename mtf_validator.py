@@ -39,6 +39,7 @@ class MTFValidationResult:
     reasoning: str
     timeframe_alignment: Dict[str, str]  # '1m': 'bullish', '5m': 'bullish', '15m': 'neutral'
     validation_score: float  # 0.0 to 1.0
+    scenario_label: str  # Descriptive label like 'pullback_countertrend', 'aligned_strong', etc.
 
 class MultiTimeframeValidator:
     """
@@ -343,7 +344,7 @@ class MultiTimeframeValidator:
     
     def _determine_validation(self, signal: int, tf_analysis: Dict) -> MTFValidationResult:
         """
-        Determine trade validation based on timeframe analysis
+        Determine trade validation based on intelligent pullback detection and weighted timeframe analysis
         
         Args:
             signal: Trade signal (1 for long, -1 for short)
@@ -376,65 +377,148 @@ class MultiTimeframeValidator:
         # Main debug logging - show all timeframes side-by-side
         self.logger.info(f"[MTF_DEBUG] Symbol: {tf_analysis.get('symbol', 'UNKNOWN')} | 1m: {signal_1m}({confidence_1m:.3f}), 5m: {signal_5m}({confidence_5m:.3f}), 15m: {signal_15m}({confidence_15m:.3f}), Final Action: {signal_direction}")
         
-        # Apply validation logic
-        if tf_1m == signal_direction and tf_5m == signal_direction and tf_15m == signal_direction:
-            # All timeframes align - full conviction
-            return MTFValidationResult(
-                allow_trade=True,
-                lot_multiplier=self.full_conviction_multiplier,
-                tp_multiplier=1.0,
-                confidence_boost=0.2,
-                reasoning="All timeframes aligned - full conviction",
-                timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                validation_score=0.9
-            )
+        # PULLBACK DETECTION LOGIC
+        # Check for bullish pullback: 15M bullish, 5M+1M bearish
+        if tf_15m == 'bullish' and tf_5m == 'bearish' and tf_1m == 'bearish':
+            if signal_direction == 'bearish':  # Countertrend short in bullish pullback
+                return MTFValidationResult(
+                    allow_trade=True,
+                    lot_multiplier=0.4,  # Small countertrend position
+                    tp_multiplier=0.6,   # Tighter TP for quick scalp
+                    confidence_boost=0.0,
+                    reasoning="Bullish pullback - countertrend short scalp",
+                    timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
+                    validation_score=0.3,
+                    scenario_label="pullback_countertrend"
+                )
+            else:  # Long signal in bullish pullback - trend continuation
+                return MTFValidationResult(
+                    allow_trade=True,
+                    lot_multiplier=1.1,  # Larger position for trend continuation
+                    tp_multiplier=1.0,   # Full TP targets
+                    confidence_boost=0.15,
+                    reasoning="Bullish pullback - trend continuation long",
+                    timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
+                    validation_score=0.8,
+                    scenario_label="pullback_continuation"
+                )
         
-        elif tf_1m == signal_direction and tf_5m == signal_direction and tf_15m == 'neutral':
-            # 1m + 5m align, 15m neutral - good conviction
-            return MTFValidationResult(
-                allow_trade=True,
-                lot_multiplier=self.partial_conviction_multiplier,
-                tp_multiplier=1.0,
-                confidence_boost=0.1,
-                reasoning="1m+5m aligned, 15m neutral - good conviction",
-                timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                validation_score=0.7
-            )
+        # Check for bearish pullback: 15M bearish, 5M+1M bullish
+        elif tf_15m == 'bearish' and tf_5m == 'bullish' and tf_1m == 'bullish':
+            if signal_direction == 'bullish':  # Countertrend long in bearish pullback
+                return MTFValidationResult(
+                    allow_trade=True,
+                    lot_multiplier=0.4,  # Small countertrend position
+                    tp_multiplier=0.6,   # Tighter TP for quick scalp
+                    confidence_boost=0.0,
+                    reasoning="Bearish pullback - countertrend long scalp",
+                    timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
+                    validation_score=0.3,
+                    scenario_label="pullback_countertrend"
+                )
+            else:  # Short signal in bearish pullback - trend continuation
+                return MTFValidationResult(
+                    allow_trade=True,
+                    lot_multiplier=1.1,  # Larger position for trend continuation
+                    tp_multiplier=1.0,   # Full TP targets
+                    confidence_boost=0.15,
+                    reasoning="Bearish pullback - trend continuation short",
+                    timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
+                    validation_score=0.8,
+                    scenario_label="pullback_continuation"
+                )
         
-        elif tf_1m == signal_direction and tf_5m == signal_direction and tf_15m != signal_direction:
-            # 1m + 5m align, 15m opposite - reduced conviction
-            return MTFValidationResult(
-                allow_trade=True,
-                lot_multiplier=self.reduced_conviction_multiplier,
-                tp_multiplier=0.8,  # Tighter TP
-                confidence_boost=0.0,
-                reasoning="1m+5m aligned, 15m opposite - reduced conviction",
-                timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                validation_score=0.5
-            )
+        # WEIGHTED DECISION SYSTEM (70/30 weighting: 15M=40%, 5M=30%, 1M=30%)
+        # Calculate weighted score based on timeframe alignment
+        weighted_score = 0.0
+        max_score = 0.0
         
-        elif tf_1m == signal_direction and tf_5m != signal_direction:
-            # 1m signal conflicts with 5m trend - block trade
-            return MTFValidationResult(
-                allow_trade=False,
-                lot_multiplier=0.0,
-                tp_multiplier=0.0,
-                confidence_boost=0.0,
-                reasoning="1m signal conflicts with 5m trend - too noisy",
-                timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                validation_score=0.1
-            )
+        # 15M timeframe weight (40%)
+        if tf_15m == signal_direction:
+            weighted_score += 0.4 * strength_15m
+        elif tf_15m == 'neutral':
+            weighted_score += 0.2 * strength_15m  # Half weight for neutral
+        max_score += 0.4
         
+        # 5M timeframe weight (30%)
+        if tf_5m == signal_direction:
+            weighted_score += 0.3 * strength_5m
+        elif tf_5m == 'neutral':
+            weighted_score += 0.15 * strength_5m  # Half weight for neutral
+        max_score += 0.3
+        
+        # 1M timeframe weight (30%)
+        if tf_1m == signal_direction:
+            weighted_score += 0.3 * strength_1m
+        elif tf_1m == 'neutral':
+            weighted_score += 0.15 * strength_1m  # Half weight for neutral
+        max_score += 0.3
+        
+        # Normalize weighted score
+        if max_score > 0:
+            normalized_score = weighted_score / max_score
         else:
-            # Default case - allow with reduced conviction
+            normalized_score = 0.0
+        
+        # RISK SCALING BASED ON WEIGHTED SCORE
+        if normalized_score >= 0.8:  # Strong alignment
             return MTFValidationResult(
                 allow_trade=True,
-                lot_multiplier=self.reduced_conviction_multiplier,
-                tp_multiplier=0.9,
-                confidence_boost=0.0,
-                reasoning="Mixed signals - reduced conviction",
+                lot_multiplier=1.2,  # Large position
+                tp_multiplier=1.0,   # Full TP targets
+                confidence_boost=0.2,
+                reasoning=f"Strong timeframe alignment (score: {normalized_score:.2f})",
                 timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                validation_score=0.4
+                validation_score=normalized_score,
+                scenario_label="aligned_strong"
+            )
+        
+        elif normalized_score >= 0.6:  # Good alignment
+            return MTFValidationResult(
+                allow_trade=True,
+                lot_multiplier=1.0,  # Normal position
+                tp_multiplier=1.0,   # Full TP targets
+                confidence_boost=0.1,
+                reasoning=f"Good timeframe alignment (score: {normalized_score:.2f})",
+                timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
+                validation_score=normalized_score,
+                scenario_label="aligned_good"
+            )
+        
+        elif normalized_score >= 0.4:  # Moderate alignment
+            return MTFValidationResult(
+                allow_trade=True,
+                lot_multiplier=0.7,  # Reduced position
+                tp_multiplier=0.9,   # Slightly tighter TP
+                confidence_boost=0.0,
+                reasoning=f"Moderate timeframe alignment (score: {normalized_score:.2f})",
+                timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
+                validation_score=normalized_score,
+                scenario_label="aligned_moderate"
+            )
+        
+        elif normalized_score >= 0.2:  # Weak alignment
+            return MTFValidationResult(
+                allow_trade=True,
+                lot_multiplier=0.4,  # Small position
+                tp_multiplier=0.7,   # Tighter TP
+                confidence_boost=0.0,
+                reasoning=f"Weak timeframe alignment (score: {normalized_score:.2f})",
+                timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
+                validation_score=normalized_score,
+                scenario_label="aligned_weak"
+            )
+        
+        else:  # Very weak alignment or conflicting signals
+            return MTFValidationResult(
+                allow_trade=True,
+                lot_multiplier=0.3,  # Minimal position
+                tp_multiplier=0.6,   # Tight TP for quick exit
+                confidence_boost=0.0,
+                reasoning=f"Minimal timeframe alignment (score: {normalized_score:.2f})",
+                timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
+                validation_score=normalized_score,
+                scenario_label="aligned_minimal"
             )
     
     def _create_fail_safe_result(self, reason: str) -> MTFValidationResult:
@@ -454,7 +538,8 @@ class MultiTimeframeValidator:
             confidence_boost=0.0,
             reasoning=f"Fail-safe: {reason}",
             timeframe_alignment={'1m': 'unknown', '5m': 'unknown', '15m': 'unknown'},
-            validation_score=0.5
+            validation_score=0.5,
+            scenario_label="fail_safe"
         )
     
     def _build_feature_arrays_from_dataframe(self, df: pd.DataFrame) -> FeatureArrays:
