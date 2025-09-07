@@ -148,7 +148,7 @@ const Trades = () => {
               <ArrowUpIcon className="h-8 w-8 text-success-500" />
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-500">Win Rate</p>
-                <p className="text-2xl font-bold text-gray-900">{tradeStats.win_rate.toFixed(1)}%</p>
+                <p className="text-2xl font-bold text-gray-900">{tradeStats?.win_rate?.toFixed(1) || '0.0'}%</p>
               </div>
             </div>
           </div>
@@ -157,7 +157,7 @@ const Trades = () => {
               <ClockIcon className="h-8 w-8 text-warning-500" />
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-500">Avg Duration</p>
-                <p className="text-2xl font-bold text-gray-900">{tradeStats.avg_trade_duration.toFixed(1)}h</p>
+                <p className="text-2xl font-bold text-gray-900">{tradeStats?.avg_trade_duration?.toFixed(1) || '0.0'}h</p>
               </div>
             </div>
           </div>
@@ -225,12 +225,12 @@ const Trades = () => {
                       </div>
                     </td>
                     <td className="table-cell">{trade.lot_size}</td>
-                    <td className="table-cell">{trade.entry_price.toFixed(5)}</td>
+                    <td className="table-cell">{trade.entry_price?.toFixed(5) || 'N/A'}</td>
                     <td className="table-cell">
                       {trade.exit_price ? trade.exit_price.toFixed(5) : 'N/A'}
                     </td>
-                    <td className="table-cell">{trade.stop_loss.toFixed(5)}</td>
-                    <td className="table-cell">{trade.take_profit.toFixed(5)}</td>
+                    <td className="table-cell">{trade.stop_loss?.toFixed(5) || 'N/A'}</td>
+                    <td className="table-cell">{trade.take_profit?.toFixed(5) || 'N/A'}</td>
                     <td className={`table-cell font-medium ${getPnLColor(trade.pnl)}`}>
                       {trade.pnl ? formatCurrency(trade.pnl) : 'N/A'}
                     </td>
@@ -239,11 +239,11 @@ const Trades = () => {
                         <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
                           <div
                             className="bg-primary-600 h-2 rounded-full"
-                            style={{ width: `${trade.confidence * 100}%` }}
+                            style={{ width: `${(trade.confidence || 0) * 100}%` }}
                           />
                         </div>
                         <span className="text-sm text-gray-500">
-                          {(trade.confidence * 100).toFixed(0)}%
+                          {trade.confidence ? (trade.confidence * 100).toFixed(0) : '0'}%
                         </span>
                       </div>
                     </td>
