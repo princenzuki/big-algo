@@ -4,10 +4,14 @@ import {
   ArrowDownIcon, 
   ClockIcon,
   CurrencyDollarIcon,
-  ChartBarIcon
+  ChartBarIcon,
+  EyeIcon,
+  XMarkIcon,
+  ArrowPathIcon
 } from '@heroicons/react/24/outline';
 import { useApi } from '../contexts/ApiContext';
 import LoadingSpinner from '../components/LoadingSpinner';
+import toast from 'react-hot-toast';
 
 const Trades = () => {
   const { fetchTrades, fetchTradesBySymbol, fetchTradeStats } = useApi();
@@ -16,6 +20,8 @@ const Trades = () => {
   const [tradeStats, setTradeStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedSymbol, setSelectedSymbol] = useState('all');
+  const [selectedTrade, setSelectedTrade] = useState(null);
+  const [actionLoading, setActionLoading] = useState(false);
 
   const tabs = [
     { id: 'open', name: 'Open Trades', count: 0 },
@@ -91,6 +97,34 @@ const Trades = () => {
   const getPnLColor = (pnl) => {
     if (!pnl) return 'text-gray-500';
     return pnl >= 0 ? 'text-success-600' : 'text-danger-600';
+  };
+
+  const handleTradeAction = async (tradeId, action) => {
+    setActionLoading(true);
+    try {
+      const response = await fetch(`/api/trades/${tradeId}/${action}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        toast.success(`Trade ${action} successful!`);
+        loadTrades(); // Refresh trades
+      } else {
+        throw new Error(`Failed to ${action} trade`);
+      }
+    } catch (error) {
+      console.error(`Error ${action}ing trade:`, error);
+      toast.error(`Failed to ${action} trade. Please try again.`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleTradeClick = (trade) => {
+    setSelectedTrade(selectedTrade?.id === trade.id ? null : trade);
   };
 
   if (loading) {
@@ -205,18 +239,25 @@ const Trades = () => {
                 <th className="table-header-cell">Confidence</th>
                 <th className="table-header-cell">Status</th>
                 <th className="table-header-cell">Time</th>
+                <th className="table-header-cell">Actions</th>
               </tr>
             </thead>
             <tbody className="table-body">
               {trades.length === 0 ? (
                 <tr>
-                  <td colSpan="11" className="table-cell text-center py-8 text-gray-500">
+                  <td colSpan="12" className="table-cell text-center py-8 text-gray-500">
                     No {activeTab} trades found
                   </td>
                 </tr>
               ) : (
                 trades.map((trade) => (
-                  <tr key={trade.id} className="table-row">
+                  <tr 
+                    key={trade.id} 
+                    className={`table-row cursor-pointer hover:bg-gray-50 transition-colors ${
+                      selectedTrade?.id === trade.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''
+                    }`}
+                    onClick={() => handleTradeClick(trade)}
+                  >
                     <td className="table-cell font-medium">{trade.symbol}</td>
                     <td className="table-cell">
                       <div className="flex items-center">
@@ -251,6 +292,46 @@ const Trades = () => {
                     <td className="table-cell text-sm text-gray-500">
                       {formatDate(trade.entry_time)}
                     </td>
+                    <td className="table-cell">
+                      <div className="flex items-center space-x-2">
+                        <button
+                          className="p-1 text-blue-600 hover:text-blue-800 transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTradeClick(trade);
+                          }}
+                          title="View Details"
+                        >
+                          <EyeIcon className="h-4 w-4" />
+                        </button>
+                        {trade.status === 'open' && (
+                          <>
+                            <button
+                              className="p-1 text-red-600 hover:text-red-800 transition-colors"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleTradeAction(trade.id, 'close');
+                              }}
+                              disabled={actionLoading}
+                              title="Close Trade"
+                            >
+                              <XMarkIcon className="h-4 w-4" />
+                            </button>
+                            <button
+                              className="p-1 text-green-600 hover:text-green-800 transition-colors"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleTradeAction(trade.id, 'modify');
+                              }}
+                              disabled={actionLoading}
+                              title="Modify Trade"
+                            >
+                              <ArrowPathIcon className="h-4 w-4" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))
               )}
@@ -259,7 +340,91 @@ const Trades = () => {
         </div>
       </div>
 
-      {/* Trade Details Modal would go here */}
+      {/* Trade Details Panel */}
+      {selectedTrade && (
+        <div className="card mt-6">
+          <div className="card-header">
+            <div className="flex items-center justify-between">
+              <h3 className="card-title">Trade Details</h3>
+              <button
+                onClick={() => setSelectedTrade(null)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+          <div className="card-body">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div>
+                <h4 className="text-sm font-medium text-gray-500 mb-2">Basic Info</h4>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Symbol:</span>
+                    <span className="font-medium">{selectedTrade.symbol}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Side:</span>
+                    <span className="font-medium capitalize">{selectedTrade.side}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Size:</span>
+                    <span className="font-medium">{selectedTrade.lot_size}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Status:</span>
+                    <span>{getStatusBadge(selectedTrade.status)}</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div>
+                <h4 className="text-sm font-medium text-gray-500 mb-2">Prices</h4>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Entry:</span>
+                    <span className="font-medium">{selectedTrade.entry_price?.toFixed(5) || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Current:</span>
+                    <span className="font-medium">{selectedTrade.exit_price?.toFixed(5) || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Stop Loss:</span>
+                    <span className="font-medium">{selectedTrade.stop_loss?.toFixed(5) || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Take Profit:</span>
+                    <span className="font-medium">{selectedTrade.take_profit?.toFixed(5) || 'N/A'}</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div>
+                <h4 className="text-sm font-medium text-gray-500 mb-2">Performance</h4>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">P&L:</span>
+                    <span className={`font-medium ${getPnLColor(selectedTrade.pnl)}`}>
+                      {selectedTrade.pnl ? formatCurrency(selectedTrade.pnl) : 'N/A'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Confidence:</span>
+                    <span className="font-medium">
+                      {selectedTrade.confidence ? (selectedTrade.confidence * 100).toFixed(0) : '0'}%
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Entry Time:</span>
+                    <span className="font-medium text-sm">{formatDate(selectedTrade.entry_time)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

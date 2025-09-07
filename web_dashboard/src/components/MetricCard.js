@@ -1,6 +1,8 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 
-const MetricCard = ({ title, value, change, icon: Icon, subtitle }) => {
+const MetricCard = ({ title, value, change, icon: Icon, subtitle, onClick, clickable = false }) => {
+  const navigate = useNavigate();
   const getChangeColor = (change) => {
     switch (change) {
       case 'positive':
@@ -27,8 +29,35 @@ const MetricCard = ({ title, value, change, icon: Icon, subtitle }) => {
     }
   };
 
+  const handleClick = () => {
+    if (onClick) {
+      onClick();
+    } else if (clickable) {
+      // Default navigation based on title
+      switch (title) {
+        case 'Account Balance':
+        case 'Net Profit':
+          navigate('/risk');
+          break;
+        case 'Total Trades':
+        case 'Win Rate':
+        case 'Profit Factor':
+          navigate('/trades');
+          break;
+        case 'System Health':
+          navigate('/health');
+          break;
+        default:
+          break;
+      }
+    }
+  };
+
   return (
-    <div className="metric-card">
+    <div 
+      className={`metric-card ${clickable || onClick ? 'cursor-pointer hover:scale-105 transition-all duration-200 hover:shadow-glow-blue' : ''}`}
+      onClick={handleClick}
+    >
       <div className="flex items-center">
         <div className="flex-shrink-0">
           {Icon && (

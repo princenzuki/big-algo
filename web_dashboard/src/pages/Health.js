@@ -16,6 +16,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { useApi } from '../contexts/ApiContext';
 import LoadingSpinner from '../components/LoadingSpinner';
+import toast from 'react-hot-toast';
 
 const Health = () => {
   const { fetchAlgoHealth, fetchSystemStatus } = useApi();
@@ -25,6 +26,8 @@ const Health = () => {
   const [errorLogs, setErrorLogs] = useState([]);
   const [latencyMetrics, setLatencyMetrics] = useState(null);
   const [performanceScore, setPerformanceScore] = useState(null);
+  const [botStatus, setBotStatus] = useState('stopped'); // running, paused, stopped, restarting
+  const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
     loadHealthData();
@@ -42,10 +45,47 @@ const Health = () => {
       ]);
       setAlgoHealth(health);
       setSystemStatus(status);
+      
+      // Update bot status based on system status
+      if (status?.bot_running) {
+        setBotStatus('running');
+      } else {
+        setBotStatus('stopped');
+      }
     } catch (err) {
       console.error('Error loading health data:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleBotAction = async (action) => {
+    setActionLoading(true);
+    try {
+      // Simulate API call to control bot
+      const response = await fetch(`/api/bot/${action}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        setBotStatus(action === 'restart' ? 'restarting' : action);
+        toast.success(`Bot ${action} command sent successfully!`);
+        
+        // Refresh data after action
+        setTimeout(() => {
+          loadHealthData();
+        }, 2000);
+      } else {
+        throw new Error(`Failed to ${action} bot`);
+      }
+    } catch (error) {
+      console.error(`Error ${action}ing bot:`, error);
+      toast.error(`Failed to ${action} bot. Please try again.`);
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -161,21 +201,37 @@ const Health = () => {
         
         {/* Bot Control Buttons */}
         <div className="flex items-center gap-3 mt-4">
-          <button className="btn btn-success btn-sm">
+          <button 
+            className={`btn btn-success btn-sm ${actionLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            onClick={() => handleBotAction('start')}
+            disabled={actionLoading || botStatus === 'running'}
+          >
             <PlayIcon className="h-4 w-4" />
-            Start
+            {botStatus === 'running' ? 'Running' : 'Start'}
           </button>
-          <button className="btn btn-warning btn-sm">
+          <button 
+            className={`btn btn-warning btn-sm ${actionLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            onClick={() => handleBotAction('pause')}
+            disabled={actionLoading || botStatus !== 'running'}
+          >
             <PauseIcon className="h-4 w-4" />
             Pause
           </button>
-          <button className="btn btn-danger btn-sm">
+          <button 
+            className={`btn btn-danger btn-sm ${actionLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            onClick={() => handleBotAction('stop')}
+            disabled={actionLoading || botStatus === 'stopped'}
+          >
             <StopIcon className="h-4 w-4" />
-            Stop
+            {botStatus === 'stopped' ? 'Stopped' : 'Stop'}
           </button>
-          <button className="btn btn-secondary btn-sm">
-            <ArrowPathIcon className="h-4 w-4" />
-            Restart
+          <button 
+            className={`btn btn-secondary btn-sm ${actionLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            onClick={() => handleBotAction('restart')}
+            disabled={actionLoading || botStatus === 'restarting'}
+          >
+            <ArrowPathIcon className={`h-4 w-4 ${botStatus === 'restarting' ? 'animate-spin' : ''}`} />
+            {botStatus === 'restarting' ? 'Restarting...' : 'Restart'}
           </button>
         </div>
       </div>

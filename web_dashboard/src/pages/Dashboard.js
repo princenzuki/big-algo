@@ -8,8 +8,10 @@ import {
   HeartIcon,
   ClockIcon,
   ArrowPathIcon,
+  CheckIcon,
 } from '@heroicons/react/24/outline';
 import API_ENDPOINTS from '../config/api';
+import toast from 'react-hot-toast';
 
 const Dashboard = () => {
   const [metrics, setMetrics] = useState({
@@ -24,35 +26,58 @@ const Dashboard = () => {
     status: 'loading',
   });
 
+  const [account_data, setAccountData] = useState({
+    account_balance: 0,
+    account_equity: 0,
+  });
+
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(new Date());
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
+  const fetchData = async (showToast = false) => {
+    try {
+      if (showToast) {
+        setRefreshing(true);
+        toast.loading('Refreshing data...', { id: 'refresh' });
+      } else {
         setLoading(true);
-        const [metricsRes, healthRes] = await Promise.all([
-          fetch(API_ENDPOINTS.TRADES_STATS),
-          fetch(API_ENDPOINTS.ALGO_HEALTH)
-        ]);
-        
-        const [metricsData, healthData] = await Promise.all([
-          metricsRes.json(),
-          healthRes.json()
-        ]);
-        
-        setMetrics(metricsData);
-        setAlgoHealth(healthData);
-        setLastUpdate(new Date());
-      } catch (err) {
-        console.error('Data fetch error:', err);
-      } finally {
-        setLoading(false);
       }
-    };
+      
+      const [metricsRes, healthRes, accountRes] = await Promise.all([
+        fetch(API_ENDPOINTS.TRADES_STATS),
+        fetch(API_ENDPOINTS.ALGO_HEALTH),
+        fetch(API_ENDPOINTS.RISK_SUMMARY)
+      ]);
+      
+      const [metricsData, healthData, accountData] = await Promise.all([
+        metricsRes.json(),
+        healthRes.json(),
+        accountRes.json()
+      ]);
+      
+      setMetrics(metricsData);
+      setAlgoHealth(healthData);
+      setAccountData(accountData);
+      setLastUpdate(new Date());
+      
+      if (showToast) {
+        toast.success('Data refreshed successfully!', { id: 'refresh' });
+      }
+    } catch (err) {
+      console.error('Data fetch error:', err);
+      if (showToast) {
+        toast.error('Failed to refresh data', { id: 'refresh' });
+      }
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
+  useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 30000); // Refresh every 30 seconds
+    const interval = setInterval(() => fetchData(), 30000); // Refresh every 30 seconds
     return () => clearInterval(interval);
   }, []);
 
@@ -82,11 +107,11 @@ const Dashboard = () => {
             Last updated: {formatLastUpdate(lastUpdate)}
           </div>
           <button
-            onClick={() => window.location.reload()}
-            disabled={loading}
+            onClick={() => fetchData(true)}
+            disabled={loading || refreshing}
             className="btn btn-primary"
           >
-            {loading ? (
+            {refreshing ? (
               <>
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
                 Refreshing...
@@ -102,13 +127,25 @@ const Dashboard = () => {
       </div>
 
       {/* Status Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+        <MetricCard
+          title="Account Balance"
+          value={`$${account_data.account_balance?.toLocaleString() || '0'}`}
+          change="neutral"
+          icon={CurrencyDollarIcon}
+          delay="0s"
+          clickable={true}
+          subtitle="Click to view risk details"
+        />
+
         <MetricCard
           title="Total Trades"
           value={metrics.total_trades}
           change={metrics.total_trades > 0 ? 'positive' : 'neutral'}
           icon={ChartBarIcon}
-          delay="0s"
+          delay="0.1s"
+          clickable={true}
+          subtitle="Click to view all trades"
         />
 
         <MetricCard
@@ -116,7 +153,9 @@ const Dashboard = () => {
           value={`${metrics.win_rate}%`}
           change={metrics.win_rate >= 50 ? 'positive' : 'negative'}
           icon={metrics.win_rate >= 50 ? ArrowTrendingUpIcon : ArrowTrendingDownIcon}
-          delay="0.1s"
+          delay="0.2s"
+          clickable={true}
+          subtitle="Click to view trade analysis"
         />
 
         <MetricCard
@@ -124,7 +163,9 @@ const Dashboard = () => {
           value={metrics.profit_factor}
           change={metrics.profit_factor >= 1.5 ? 'positive' : 'negative'}
           icon={metrics.profit_factor >= 1.5 ? ArrowTrendingUpIcon : ArrowTrendingDownIcon}
-          delay="0.2s"
+          delay="0.3s"
+          clickable={true}
+          subtitle="Click to view performance"
         />
 
         <MetricCard
@@ -132,7 +173,9 @@ const Dashboard = () => {
           value={`$${metrics.net_profit}`}
           change={metrics.net_profit >= 0 ? 'positive' : 'negative'}
           icon={metrics.net_profit >= 0 ? CurrencyDollarIcon : ArrowTrendingDownIcon}
-          delay="0.3s"
+          delay="0.4s"
+          clickable={true}
+          subtitle="Click to view P&L details"
         />
       </div>
 
@@ -149,11 +192,13 @@ const Dashboard = () => {
               : 'negative'
           }
           icon={HeartIcon}
-          delay="0.4s"
+          delay="0.5s"
           large={true}
+          clickable={true}
+          subtitle="Click to view detailed health metrics"
         />
         
-        <div className="card bounce-in" style={{ animationDelay: '0.5s' }}>
+        <div className="card bounce-in" style={{ animationDelay: '0.6s' }}>
           <div className="card-header">
             <div className="flex items-center justify-between">
               <h3 className="card-title">System Status</h3>
