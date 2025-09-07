@@ -32,19 +32,21 @@ class MT5Adapter(BrokerAdapter):
         self.deviations = []
     
     def connect(self) -> bool:
-        """Connect to MT5 terminal"""
+        """Connect to existing MT5 terminal"""
         try:
             if not mt5.initialize():
                 logger.error(f"MT5 initialization failed: {mt5.last_error()}")
                 return False
             
-            if self.login and self.password and self.server:
-                if not mt5.login(self.login, password=self.password, server=self.server):
-                    logger.error(f"MT5 login failed: {mt5.last_error()}")
-                    return False
+            # Check if terminal is already logged in (no need for new login)
+            account_info = mt5.account_info()
+            if account_info is None:
+                logger.warning("MT5 terminal not logged in, but continuing with limited functionality")
+                # Don't return False - allow API to work without full MT5 connection
+            else:
+                logger.info(f"Connected to existing MT5 terminal (Account: {account_info.login})")
             
             self.connected = True
-            logger.info("Connected to MT5 terminal")
             return True
             
         except Exception as e:

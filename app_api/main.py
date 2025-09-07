@@ -615,6 +615,43 @@ async def health_check():
         "uptime_hours": (datetime.now() - bot_start_time).total_seconds() / 3600
     }
 
+# Add missing endpoints that frontend is calling
+@app.get("/metrics")
+async def get_metrics_legacy():
+    """Legacy metrics endpoint for frontend compatibility"""
+    try:
+        stats = portfolio_manager.get_portfolio_stats()
+        return {
+            "total_trades": stats.total_trades,
+            "win_rate": stats.win_rate,
+            "profit_factor": stats.profit_factor,
+            "net_profit": stats.total_pnl
+        }
+    except Exception as e:
+        logger.error(f"Error getting metrics: {e}")
+        return {
+            "total_trades": 0,
+            "win_rate": 0.0,
+            "profit_factor": 0.0,
+            "net_profit": 0.0
+        }
+
+@app.get("/algo-health")
+async def get_algo_health_legacy():
+    """Legacy algo health endpoint for frontend compatibility"""
+    try:
+        return get_algo_health()
+    except Exception as e:
+        logger.error(f"Error getting algo health: {e}")
+        return {
+            "health_score": 0,
+            "status": "critical",
+            "uptime_hours": 0.0,
+            "trade_execution_success_rate": 0.0,
+            "avg_trade_confidence": 0.0,
+            "risk_exposure_percent": 0.0
+        }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

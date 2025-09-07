@@ -9,6 +9,7 @@ import {
   ClockIcon,
   ArrowPathIcon,
 } from '@heroicons/react/24/outline';
+import API_ENDPOINTS from '../config/api';
 
 const Dashboard = () => {
   const [metrics, setMetrics] = useState({
@@ -31,8 +32,8 @@ const Dashboard = () => {
       try {
         setLoading(true);
         const [metricsRes, healthRes] = await Promise.all([
-          fetch('http://localhost:8000/metrics'),
-          fetch('http://localhost:8000/algo-health')
+          fetch(API_ENDPOINTS.TRADES_STATS),
+          fetch(API_ENDPOINTS.ALGO_HEALTH)
         ]);
         
         const [metricsData, healthData] = await Promise.all([
