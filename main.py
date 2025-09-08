@@ -478,7 +478,7 @@ class LorentzianTradingBot:
             
             # Log MTF decision with scenario label
             confidence_str = f"+{mtf_result.confidence_boost:.1f}" if mtf_result.confidence_boost > 0 else f"{mtf_result.confidence_boost:.1f}"
-            logger.info(f"[MTF Decision] {mtf_result.scenario_label} → Lot={mtf_result.lot_multiplier:.1f}x, TP={mtf_result.tp_multiplier:.1f}x, Confidence={confidence_str}")
+            logger.info(f"[MTF Decision] {mtf_result.scenario_label} -> Lot={mtf_result.lot_multiplier:.1f}x, TP={mtf_result.tp_multiplier:.1f}x, Confidence={confidence_str}")
             
             # Determine trade side
             side = 'buy' if signal > 0 else 'sell'
@@ -550,13 +550,23 @@ class LorentzianTradingBot:
             # Apply MTF TP multiplier
             original_tp = take_profit
             if side == 'buy':
-                # For buy orders, increase TP distance
+                # For buy orders, adjust TP distance based on multiplier
                 tp_distance = take_profit - entry_price
-                take_profit = entry_price + (tp_distance * mtf_result.tp_multiplier)
+                if mtf_result.tp_multiplier >= 1.0:
+                    # Increase TP distance for higher conviction
+                    take_profit = entry_price + (tp_distance * mtf_result.tp_multiplier)
+                else:
+                    # For lower conviction, keep original TP (don't reduce it)
+                    take_profit = original_tp
             else:
-                # For sell orders, increase TP distance
+                # For sell orders, adjust TP distance based on multiplier
                 tp_distance = entry_price - take_profit
-                take_profit = entry_price - (tp_distance * mtf_result.tp_multiplier)
+                if mtf_result.tp_multiplier >= 1.0:
+                    # Increase TP distance for higher conviction
+                    take_profit = entry_price - (tp_distance * mtf_result.tp_multiplier)
+                else:
+                    # For lower conviction, keep original TP (don't reduce it)
+                    take_profit = original_tp
             
             logger.info(f"[MTF_VALIDATION] {symbol} | TP: {original_tp:.5f} -> {take_profit:.5f} (x{mtf_result.tp_multiplier:.2f})")
             
@@ -585,7 +595,7 @@ class LorentzianTradingBot:
             # Validate minimum RR (1:1)
             tp_distance = abs(take_profit - entry_price)
             if tp_distance < stop_distance:
-                logger.error(f"❌ Invalid RR: TP distance {tp_distance:.5f} < SL distance {stop_distance:.5f}")
+                logger.error(f"[ERROR] Invalid RR: TP distance {tp_distance:.5f} < SL distance {stop_distance:.5f}")
                 return
             
             actual_rr = tp_distance / stop_distance if stop_distance > 0 else 0

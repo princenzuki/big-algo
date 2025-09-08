@@ -109,7 +109,7 @@ class SmartTakeProfit:
         
         # Check if ATR-based TP meets minimum RR requirement
         if tp_distance < min_tp_distance:
-            logger.warning(f"⚠️ ATR TP distance {tp_distance:.6f} < minimum RR {min_tp_distance:.6f}, using fallback RR TP")
+            logger.warning(f"[WARNING] ATR TP distance {tp_distance:.6f} < minimum RR {min_tp_distance:.6f}, using fallback RR TP")
             tp_distance = min_tp_distance
             
             # Recalculate TP prices with minimum RR
