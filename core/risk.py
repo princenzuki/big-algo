@@ -308,6 +308,7 @@ class Position:
     confidence: float
     risk_amount: float
     opened_at: datetime
+    close_time: Optional[datetime] = None
     status: str = 'open'  # 'open', 'closed', 'stopped'
     # Trailing stop fields
     original_stop_loss: float = 0.0
@@ -431,6 +432,7 @@ class RiskManager:
         self.positions: Dict[str, Position] = {}  # symbol -> position
         self.cooldowns: Dict[str, datetime] = {}  # symbol -> cooldown_end_time
         self.account_info: Optional[AccountInfo] = None
+        self._position_locks: Dict[str, bool] = {}  # symbol -> is_locked (prevents race conditions)
         
     def update_account_info(self, account_info: AccountInfo):
         """Update account information for risk calculations"""
@@ -505,9 +507,20 @@ class RiskManager:
         Returns:
             Tuple of (can_open, reason)
         """
-        # Check if symbol already has open position
-        if symbol in self.positions and self.positions[symbol].status == 'open':
-            return False, "DUPLICATE_SYMBOL"
+        # Check for position lock (prevents race conditions)
+        if symbol in self._position_locks and self._position_locks[symbol]:
+            return False, "POSITION_LOCKED"
+        
+        # Check if symbol already has open position (strengthened duplicate prevention)
+        if symbol in self.positions:
+            position = self.positions[symbol]
+            if position.status == 'open':
+                return False, "DUPLICATE_SYMBOL"
+            # Also check if position was recently closed (within last 5 minutes) to prevent rapid re-entry
+            if position.status == 'closed' and hasattr(position, 'close_time'):
+                from datetime import datetime, timedelta
+                if datetime.now() - position.close_time < timedelta(minutes=5):
+                    return False, "RECENT_CLOSE_COOLDOWN"
         
         # Check cooldown
         if symbol in self.cooldowns:
@@ -582,26 +595,39 @@ class RiskManager:
             logger.warning(f"Position rejected for {symbol}: {reason}")
             return None
         
-        # Create position
-        position = Position(
-            symbol=symbol,
-            side=side,
-            entry_price=entry_price,
-            lot_size=lot_size,
-            stop_loss=stop_loss,
-            take_profit=take_profit,
-            confidence=confidence,
-            risk_amount=risk_amount,
-            opened_at=datetime.now()
-        )
+        # Lock the symbol to prevent race conditions
+        self._position_locks[symbol] = True
         
-        # Add to positions
-        self.positions[symbol] = position
-        
-        logger.info(f"Position opened: {symbol} {side} {lot_size} lots @ {entry_price}, "
-                   f"SL={stop_loss}, TP={take_profit}, Risk={risk_amount:.2f}")
-        
-        return position
+        try:
+            # Double-check for duplicates after acquiring lock
+            if symbol in self.positions and self.positions[symbol].status == 'open':
+                logger.warning(f"Duplicate position detected for {symbol} after lock acquisition")
+                return None
+            
+            # Create position
+            position = Position(
+                symbol=symbol,
+                side=side,
+                entry_price=entry_price,
+                lot_size=lot_size,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+                confidence=confidence,
+                risk_amount=risk_amount,
+                opened_at=datetime.now()
+            )
+            
+            # Add to positions
+            self.positions[symbol] = position
+            
+            logger.info(f"Position opened: {symbol} {side} {lot_size} lots @ {entry_price}, "
+                       f"SL={stop_loss}, TP={take_profit}, Risk={risk_amount:.2f}")
+            
+            return position
+            
+        finally:
+            # Always unlock the symbol
+            self._position_locks[symbol] = False
     
     def close_position(self, symbol: str, close_price: float, reason: str = "manual"):
         """
@@ -618,6 +644,7 @@ class RiskManager:
         
         position = self.positions[symbol]
         position.status = 'closed'
+        position.close_time = datetime.now()
         
         # Calculate P&L
         if position.side == 'long':
