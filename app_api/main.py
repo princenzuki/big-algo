@@ -715,11 +715,11 @@ async def websocket_endpoint(websocket: WebSocket):
             # Get live data from existing endpoints
             try:
                 # Get live trades
-                trades_data = await get_open_trades()
+                trades_data = get_open_trades()
                 trades = trades_data.get("trades", []) if isinstance(trades_data, dict) else []
                 
                 # Get P&L data
-                pnl_data = await get_trades_stats()
+                pnl_data = get_trades_stats()
                 pnl = {
                     "total_trades": pnl_data.get("total_trades", 0),
                     "win_rate": pnl_data.get("win_rate", 0),
@@ -730,7 +730,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 }
                 
                 # Get health data
-                health_data = await get_algo_health()
+                health_data = get_algo_health()
                 health = {
                     "health_score": health_data.get("health_score", 0),
                     "status": health_data.get("status", "unknown"),
@@ -741,7 +741,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 }
                 
                 # Get account data
-                account_data = await get_risk_summary()
+                account_data = get_risk_summary()
                 account = {
                     "account_balance": account_data.get("account_balance", 0),
                     "account_equity": account_data.get("account_equity", 0),
@@ -781,4 +781,4 @@ async def websocket_endpoint(websocket: WebSocket):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)
