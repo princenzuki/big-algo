@@ -318,6 +318,30 @@ class Position:
     best_price: float = 0.0
     atr_distance: float = 0.0
     break_even_triggered: bool = False
+    
+    # 🚀 ENHANCED SL/TP MANAGEMENT FIELDS
+    # Multi-tier SL levels
+    micro_trailing_enabled: bool = False  # For noise protection
+    main_trailing_enabled: bool = False   # For risk control
+    micro_trailing_distance: float = 0.0  # Smaller distance for noise
+    main_trailing_distance: float = 0.0   # Main ATR distance
+    last_micro_update: Optional[datetime] = None
+    last_main_update: Optional[datetime] = None
+    
+    # Partial TP management
+    partial_tp_taken: bool = False
+    partial_tp_percentage: float = 0.5  # 50% at baseline
+    partial_tp_price: float = 0.0
+    remaining_lot_size: float = 0.0
+    trailing_tp_enabled: bool = False
+    trailing_tp_distance: float = 0.0
+    best_tp_price: float = 0.0
+    last_tp_update: Optional[datetime] = None
+    
+    # Trend-aware adjustments
+    htf_support_level: float = 0.0  # 5m/15m support level
+    htf_resistance_level: float = 0.0  # 5m/15m resistance level
+    trend_strength: float = 0.0  # Combined HTF trend strength
 
 
 def calculate_trailing_stop(position: Position, current_price: float, current_atr: float, 
@@ -680,9 +704,13 @@ class RiskManager:
             close_price: Close price
             reason: Close reason
         """
+        # 🚀 CRITICAL FIX: Always set global cooldown regardless of position tracking
+        self._last_trade_close_time = datetime.now()
+        logger.info(f"[COOLDOWN] Global 10-minute cooldown started at {self._last_trade_close_time.strftime('%H:%M:%S')}")
+        
         if symbol not in self.positions:
-            logger.warning(f"Position not found for {symbol}")
-            return
+            logger.warning(f"Position not found for {symbol} - but cooldown still activated")
+            return None
         
         position = self.positions[symbol]
         position.status = 'closed'
@@ -694,14 +722,10 @@ class RiskManager:
         else:
             pnl = (position.entry_price - close_price) * position.lot_size * 100000
         
-        # Start cooldown
+        # Start per-symbol cooldown
         self.cooldowns[symbol] = datetime.now() + timedelta(minutes=self.settings.cooldown_minutes)
         
-        # 🚀 NEW: Record global trade close time for 10-minute cooldown
-        self._last_trade_close_time = datetime.now()
-        
         logger.info(f"Position closed: {symbol} @ {close_price}, P&L={pnl:.2f}, Reason={reason}")
-        logger.info(f"[COOLDOWN] Global 10-minute cooldown started at {self._last_trade_close_time.strftime('%H:%M:%S')}")
         
         return pnl
     
@@ -788,15 +812,27 @@ class RiskManager:
             except Exception as e:
                 logger.warning(f"⚠️ [MTF_MOMENTUM_EXIT] Error checking multi-timeframe momentum exits for {symbol}: {e}")
         
-        # 📈 ATR TRAILING STOP LOGIC (EXISTING - Preserved)
+        # 🚀 ENHANCED SL/TP MANAGEMENT (Multi-tier + Trend-aware)
         if historical_data:
             current_atr = self._calculate_current_atr(historical_data)
             if current_atr > 0:
-                new_stop, updated, log_msg = calculate_trailing_stop(position, current_price, current_atr, historical_data)
-                if updated:
-                    logger.info(f"📈 [ATR_TRAILING] {symbol}: {log_msg}")
-                    # Update the stop loss in MT5 if needed
+                # Enhanced trailing stop with HTF awareness
+                new_stop, stop_updated, stop_log = self._calculate_enhanced_trailing_stop(
+                    position, current_price, current_atr, signal_data_5m, signal_data_15m
+                )
+                if stop_updated:
+                    logger.info(f"📈 [ENHANCED_SL] {symbol}: {stop_log}")
+                    # Update the stop loss in MT5
                     self._update_stop_loss_in_mt5(symbol, new_stop)
+                
+                # Enhanced take profit with partial TP and trend awareness
+                new_tp, tp_updated, tp_log = self._calculate_enhanced_take_profit(
+                    position, current_price, current_atr, signal_data_5m, signal_data_15m
+                )
+                if tp_updated:
+                    logger.info(f"🎯 [ENHANCED_TP] {symbol}: {tp_log}")
+                    # Update the take profit in MT5
+                    self._update_take_profit_in_mt5(symbol, new_tp)
         
         # 🛑 ATR STOP LOSS & TAKE PROFIT CHECKS (EXISTING - Preserved)
         if position.side == 'buy':
@@ -1024,6 +1060,375 @@ class RiskManager:
                 
         except Exception as e:
             logger.error(f"❌ [MT5_UPDATE] Error updating stop loss for {symbol}: {e}")
+            return False
+    
+    def _update_take_profit_in_mt5(self, symbol: str, new_take_profit: float):
+        """Update take profit in MT5 - ACTUALLY SEND TO MT5"""
+        try:
+            # Get the position to find the ticket
+            if symbol not in self.positions:
+                logger.warning(f"Cannot update TP for {symbol}: position not found")
+                return False
+            
+            position = self.positions[symbol]
+            if position.status != 'open':
+                logger.warning(f"Cannot update TP for {symbol}: position not open")
+                return False
+            
+            # Import MT5 adapter to modify position
+            from adapters.mt5_adapter import MT5Adapter
+            mt5_adapter = MT5Adapter()
+            
+            # Get current position ticket from MT5
+            import MetaTrader5 as mt5
+            mt5_positions = mt5.positions_get(symbol=symbol)
+            
+            if not mt5_positions or len(mt5_positions) == 0:
+                logger.warning(f"Cannot update TP for {symbol}: no MT5 position found")
+                return False
+            
+            # Use the first position found for this symbol
+            mt5_position = mt5_positions[0]
+            ticket = mt5_position.ticket
+            
+            # Update the take profit in MT5
+            success = mt5_adapter.modify_position(
+                ticket=ticket,
+                stop_loss=None,  # Keep existing SL
+                take_profit=new_take_profit
+            )
+            
+            if success:
+                # Update our internal position tracking
+                position.take_profit = new_take_profit
+                logger.info(f"✅ [MT5_UPDATE] {symbol}: Take profit updated to {new_take_profit:.5f} (Ticket: {ticket})")
+                return True
+            else:
+                logger.error(f"❌ [MT5_UPDATE] {symbol}: Failed to update take profit to {new_take_profit:.5f}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ [MT5_UPDATE] Error updating take profit for {symbol}: {e}")
+            return False
+    
+    def _calculate_enhanced_trailing_stop(self, position: Position, current_price: float, 
+                                        current_atr: float, signal_data_5m: Dict = None, 
+                                        signal_data_15m: Dict = None) -> Tuple[float, bool, str]:
+        """
+        Enhanced multi-tier trailing stop with trend-aware adjustments
+        
+        Args:
+            position: Current position
+            current_price: Current market price
+            current_atr: Current ATR value
+            signal_data_5m: 5m signal data for trend awareness
+            signal_data_15m: 15m signal data for trend awareness
+            
+        Returns:
+            Tuple of (new_stop_loss, stop_updated, log_message)
+        """
+        if position.status != 'open':
+            return position.stop_loss, False, "Position not open"
+        
+        # Calculate trend strength from HTF data
+        trend_strength = self._calculate_trend_strength(signal_data_5m, signal_data_15m, position.side)
+        position.trend_strength = trend_strength
+        
+        # Determine if HTF supports the position
+        htf_supports = self._check_htf_support(signal_data_5m, signal_data_15m, position.side)
+        
+        # Calculate micro and main trailing distances
+        micro_distance = current_atr * 0.3  # 30% of ATR for noise protection
+        main_distance = current_atr * 1.0   # Full ATR for risk control
+        
+        # Adjust distances based on trend strength
+        if trend_strength > 0.7:  # Strong trend
+            micro_distance *= 0.8  # Tighter micro trailing
+            main_distance *= 1.2   # Wider main trailing
+        elif trend_strength < 0.3:  # Weak trend
+            micro_distance *= 1.2  # Wider micro trailing
+            main_distance *= 0.9   # Tighter main trailing
+        
+        position.micro_trailing_distance = micro_distance
+        position.main_trailing_distance = main_distance
+        
+        updated = False
+        log_message = ""
+        
+        if position.side == 'buy':
+            # Update best price if current price is higher
+            if current_price > position.best_price:
+                position.best_price = current_price
+                
+                # Calculate micro trailing stop (for noise protection)
+                micro_stop = current_price - micro_distance
+                
+                # Calculate main trailing stop (for risk control)
+                main_stop = current_price - main_distance
+                
+                # Don't move below break-even
+                break_even_stop = position.entry_price
+                micro_stop = max(micro_stop, break_even_stop)
+                main_stop = max(main_stop, break_even_stop)
+                
+                # Determine which stop to use based on HTF support
+                if htf_supports and trend_strength > 0.5:
+                    # Use micro trailing when HTF strongly supports
+                    new_stop = micro_stop
+                    stop_type = "micro"
+                    position.micro_trailing_enabled = True
+                    position.last_micro_update = datetime.now()
+                else:
+                    # Use main trailing for risk control
+                    new_stop = main_stop
+                    stop_type = "main"
+                    position.main_trailing_enabled = True
+                    position.last_main_update = datetime.now()
+                
+                # Only update if new stop is better (higher)
+                if new_stop > position.stop_loss:
+                    position.stop_loss = new_stop
+                    updated = True
+                    log_message = f"Enhanced trailing ({stop_type}): {new_stop:.5f} | Trend: {trend_strength:.2f} | HTF: {'supports' if htf_supports else 'neutral'}"
+        
+        else:  # sell
+            # Update best price if current price is lower
+            if current_price < position.best_price:
+                position.best_price = current_price
+                
+                # Calculate micro trailing stop (for noise protection)
+                micro_stop = current_price + micro_distance
+                
+                # Calculate main trailing stop (for risk control)
+                main_stop = current_price + main_distance
+                
+                # Don't move above break-even
+                break_even_stop = position.entry_price
+                micro_stop = min(micro_stop, break_even_stop)
+                main_stop = min(main_stop, break_even_stop)
+                
+                # Determine which stop to use based on HTF support
+                if htf_supports and trend_strength > 0.5:
+                    # Use micro trailing when HTF strongly supports
+                    new_stop = micro_stop
+                    stop_type = "micro"
+                    position.micro_trailing_enabled = True
+                    position.last_micro_update = datetime.now()
+                else:
+                    # Use main trailing for risk control
+                    new_stop = main_stop
+                    stop_type = "main"
+                    position.main_trailing_enabled = True
+                    position.last_main_update = datetime.now()
+                
+                # Only update if new stop is better (lower)
+                if new_stop < position.stop_loss:
+                    position.stop_loss = new_stop
+                    updated = True
+                    log_message = f"Enhanced trailing ({stop_type}): {new_stop:.5f} | Trend: {trend_strength:.2f} | HTF: {'supports' if htf_supports else 'neutral'}"
+        
+        return position.stop_loss, updated, log_message
+    
+    def _calculate_enhanced_take_profit(self, position: Position, current_price: float, 
+                                      current_atr: float, signal_data_5m: Dict = None, 
+                                      signal_data_15m: Dict = None) -> Tuple[float, bool, str]:
+        """
+        Enhanced take profit with partial TP and trend-aware adjustments
+        
+        Args:
+            position: Current position
+            current_price: Current market price
+            current_atr: Current ATR value
+            signal_data_5m: 5m signal data for trend awareness
+            signal_data_15m: 15m signal data for trend awareness
+            
+        Returns:
+            Tuple of (new_take_profit, tp_updated, log_message)
+        """
+        if position.status != 'open':
+            return position.take_profit, False, "Position not open"
+        
+        # Calculate trend strength from HTF data
+        trend_strength = self._calculate_trend_strength(signal_data_5m, signal_data_15m, position.side)
+        
+        # Determine if HTF supports the position
+        htf_supports = self._check_htf_support(signal_data_5m, signal_data_15m, position.side)
+        
+        updated = False
+        log_message = ""
+        
+        # Check for partial TP opportunity
+        if not position.partial_tp_taken:
+            # Calculate baseline TP (50% of original TP distance)
+            if position.side == 'buy':
+                original_tp_distance = position.take_profit - position.entry_price
+                baseline_tp = position.entry_price + (original_tp_distance * 0.5)
+                
+                if current_price >= baseline_tp:
+                    # Take partial TP
+                    partial_lot_size = position.lot_size * position.partial_tp_percentage
+                    success = self._execute_partial_tp(position.symbol, partial_lot_size, current_price)
+                    
+                    if success:
+                        position.partial_tp_taken = True
+                        position.partial_tp_price = current_price
+                        position.remaining_lot_size = position.lot_size - partial_lot_size
+                        position.lot_size = position.remaining_lot_size
+                        
+                        # Enable trailing TP for remaining position
+                        position.trailing_tp_enabled = True
+                        position.trailing_tp_distance = current_atr * 0.8
+                        position.best_tp_price = current_price
+                        
+                        log_message = f"Partial TP taken: {partial_lot_size:.3f} lots @ {current_price:.5f} | Remaining: {position.remaining_lot_size:.3f} lots"
+                        updated = True
+                        logger.info(f"🎯 [PARTIAL_TP] {position.symbol}: {log_message}")
+        
+        # Handle trailing TP for remaining position
+        if position.trailing_tp_enabled and position.partial_tp_taken:
+            if position.side == 'buy':
+                if current_price > position.best_tp_price:
+                    position.best_tp_price = current_price
+                    
+                    # Calculate new TP based on trend strength
+                    if htf_supports and trend_strength > 0.6:
+                        # Extend TP further when HTF strongly supports
+                        new_tp = current_price + (current_atr * 1.5)
+                        tp_type = "extended"
+                    else:
+                        # Standard trailing TP
+                        new_tp = current_price + position.trailing_tp_distance
+                        tp_type = "trailing"
+                    
+                    # Only update if new TP is better (higher)
+                    if new_tp > position.take_profit:
+                        position.take_profit = new_tp
+                        position.last_tp_update = datetime.now()
+                        updated = True
+                        log_message = f"Trailing TP ({tp_type}): {new_tp:.5f} | Trend: {trend_strength:.2f} | HTF: {'supports' if htf_supports else 'neutral'}"
+            
+            else:  # sell
+                if current_price < position.best_tp_price:
+                    position.best_tp_price = current_price
+                    
+                    # Calculate new TP based on trend strength
+                    if htf_supports and trend_strength > 0.6:
+                        # Extend TP further when HTF strongly supports
+                        new_tp = current_price - (current_atr * 1.5)
+                        tp_type = "extended"
+                    else:
+                        # Standard trailing TP
+                        new_tp = current_price - position.trailing_tp_distance
+                        tp_type = "trailing"
+                    
+                    # Only update if new TP is better (lower)
+                    if new_tp < position.take_profit:
+                        position.take_profit = new_tp
+                        position.last_tp_update = datetime.now()
+                        updated = True
+                        log_message = f"Trailing TP ({tp_type}): {new_tp:.5f} | Trend: {trend_strength:.2f} | HTF: {'supports' if htf_supports else 'neutral'}"
+        
+        return position.take_profit, updated, log_message
+    
+    def _calculate_trend_strength(self, signal_data_5m: Dict, signal_data_15m: Dict, position_side: str) -> float:
+        """Calculate combined trend strength from 5m and 15m data"""
+        if not signal_data_5m and not signal_data_15m:
+            return 0.5  # Neutral if no HTF data
+        
+        strength_5m = 0.0
+        strength_15m = 0.0
+        
+        if signal_data_5m:
+            signal_5m = signal_data_5m.get('signal', 0)
+            confidence_5m = signal_data_5m.get('confidence', 0.0)
+            
+            if position_side == 'buy' and signal_5m > 0:
+                strength_5m = confidence_5m
+            elif position_side == 'sell' and signal_5m < 0:
+                strength_5m = confidence_5m
+            else:
+                strength_5m = 0.0
+        
+        if signal_data_15m:
+            signal_15m = signal_data_15m.get('signal', 0)
+            confidence_15m = signal_data_15m.get('confidence', 0.0)
+            
+            if position_side == 'buy' and signal_15m > 0:
+                strength_15m = confidence_15m
+            elif position_side == 'sell' and signal_15m < 0:
+                strength_15m = confidence_15m
+            else:
+                strength_15m = 0.0
+        
+        # Weight 15m more heavily (0.6) than 5m (0.4)
+        if signal_data_5m and signal_data_15m:
+            return (strength_5m * 0.4) + (strength_15m * 0.6)
+        elif signal_data_5m:
+            return strength_5m
+        elif signal_data_15m:
+            return strength_15m
+        else:
+            return 0.5
+    
+    def _check_htf_support(self, signal_data_5m: Dict, signal_data_15m: Dict, position_side: str) -> bool:
+        """Check if HTF data supports the position"""
+        if not signal_data_5m and not signal_data_15m:
+            return False  # No HTF data, assume no support
+        
+        supports_5m = False
+        supports_15m = False
+        
+        if signal_data_5m:
+            signal_5m = signal_data_5m.get('signal', 0)
+            if position_side == 'buy' and signal_5m > 0:
+                supports_5m = True
+            elif position_side == 'sell' and signal_5m < 0:
+                supports_5m = True
+        
+        if signal_data_15m:
+            signal_15m = signal_data_15m.get('signal', 0)
+            if position_side == 'buy' and signal_15m > 0:
+                supports_15m = True
+            elif position_side == 'sell' and signal_15m < 0:
+                supports_15m = True
+        
+        # Support if at least one HTF supports (or both if both available)
+        if signal_data_5m and signal_data_15m:
+            return supports_5m and supports_15m
+        else:
+            return supports_5m or supports_15m
+    
+    def _execute_partial_tp(self, symbol: str, partial_lot_size: float, current_price: float) -> bool:
+        """Execute partial take profit in MT5"""
+        try:
+            # Import MT5 adapter
+            from adapters.mt5_adapter import MT5Adapter
+            mt5_adapter = MT5Adapter()
+            
+            # Get current position ticket from MT5
+            import MetaTrader5 as mt5
+            mt5_positions = mt5.positions_get(symbol=symbol)
+            
+            if not mt5_positions or len(mt5_positions) == 0:
+                logger.warning(f"Cannot execute partial TP for {symbol}: no MT5 position found")
+                return False
+            
+            # Use the first position found for this symbol
+            mt5_position = mt5_positions[0]
+            ticket = mt5_position.ticket
+            
+            # Execute partial close in MT5
+            success = mt5_adapter.close_position_partial(ticket, partial_lot_size)
+            
+            if success:
+                logger.info(f"✅ [PARTIAL_TP_EXECUTED] {symbol}: {partial_lot_size:.3f} lots closed @ {current_price:.5f} (Ticket: {ticket})")
+                return True
+            else:
+                logger.error(f"❌ [PARTIAL_TP_FAILED] {symbol}: Failed to close {partial_lot_size:.3f} lots")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ [PARTIAL_TP_ERROR] Error executing partial TP for {symbol}: {e}")
             return False
     
     def _calculate_current_risk(self) -> float:

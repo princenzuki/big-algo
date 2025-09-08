@@ -582,3 +582,57 @@ class MT5Adapter(BrokerAdapter):
         # Check if lot size aligns with step (handle floating point precision)
         steps = lot_size / symbol_info.lot_step
         return abs(steps - round(steps)) < 1e-10
+    
+    def close_position_partial(self, ticket: int, partial_lot_size: float) -> bool:
+        """
+        Close a portion of a position in MT5
+        
+        Args:
+            ticket: Position ticket
+            partial_lot_size: Lot size to close
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Get position information
+            position = mt5.positions_get(ticket=ticket)
+            if not position or len(position) == 0:
+                logger.error(f"Position with ticket {ticket} not found")
+                return False
+            
+            position = position[0]
+            
+            # Validate partial lot size
+            if partial_lot_size >= position.volume:
+                logger.error(f"Partial lot size {partial_lot_size} >= position volume {position.volume}")
+                return False
+            
+            # Create close request for partial position
+            close_request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": position.symbol,
+                "volume": partial_lot_size,
+                "type": mt5.ORDER_TYPE_SELL if position.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY,
+                "position": ticket,
+                "price": mt5.symbol_info_tick(position.symbol).bid if position.type == mt5.ORDER_TYPE_BUY else mt5.symbol_info_tick(position.symbol).ask,
+                "deviation": 20,
+                "magic": position.magic,
+                "comment": f"Partial close {partial_lot_size} lots",
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": mt5.ORDER_FILLING_IOC,
+            }
+            
+            # Send close request
+            result = mt5.order_send(close_request)
+            
+            if result.retcode != mt5.TRADE_RETCODE_DONE:
+                logger.error(f"Failed to close partial position: {result.retcode} - {result.comment}")
+                return False
+            
+            logger.info(f"✅ Partial position closed: {partial_lot_size} lots of ticket {ticket}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error closing partial position {ticket}: {e}")
+            return False
