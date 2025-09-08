@@ -12,6 +12,7 @@ import sys
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import time
+import pandas as pd
 
 from core.signals import LorentzianClassifier, Settings, FilterSettings
 from core.risk import RiskManager, RiskSettings, AccountInfo, get_dynamic_spread, get_intelligent_sl, calculate_trailing_stop, calculate_hybrid_stop_loss
@@ -364,14 +365,71 @@ class LorentzianTradingBot:
                     # Get historical data for ATR calculation
                     historical_data = self.historical_data.get(position.symbol, [])
                     
-                    # 🎯 NEW: Generate current signal data for momentum exit checks
-                    signal_data = None
+                    # 🎯 ENHANCED: Generate signal data for ALL timeframes (1m, 5m, 15m) for momentum exit checks
+                    signal_data_1m = None
+                    signal_data_5m = None
+                    signal_data_15m = None
                     bars_held = None
                     
                     if historical_data and len(historical_data) >= 20:
                         try:
-                            # Generate current signal data
-                            signal_data = self.classifier.generate_signal(historical_data[-1:], historical_data)
+                            # Generate 1m signal data (existing logic)
+                            signal_data_1m = self.classifier.generate_signal(historical_data[-1:], historical_data)
+                            
+                            # 🚀 NEW: Fetch and generate 5m signal data
+                            import MetaTrader5 as mt5
+                            if mt5.initialize():
+                                try:
+                                    # Get 5m historical data
+                                    rates_5m = mt5.copy_rates_from_pos(position.symbol, mt5.TIMEFRAME_M5, 0, 100)
+                                    if rates_5m is not None and len(rates_5m) > 20:
+                                        # Convert to DataFrame format
+                                        df_5m = pd.DataFrame(rates_5m)
+                                        historical_data_5m = []
+                                        for _, row in df_5m.iterrows():
+                                            historical_data_5m.append({
+                                                'time': row['time'],
+                                                'open': row['open'],
+                                                'high': row['high'],
+                                                'low': row['low'],
+                                                'close': row['close'],
+                                                'volume': row['tick_volume']
+                                            })
+                                        
+                                        # Generate 5m signal data
+                                        signal_data_5m = self.classifier.generate_signal(historical_data_5m[-1:], historical_data_5m)
+                                        logger.debug(f"[HTF_MOMENTUM] {position.symbol}: 5m signal data generated")
+                                    else:
+                                        logger.warning(f"[HTF_MOMENTUM] {position.symbol}: No 5m data available")
+                                except Exception as e:
+                                    logger.warning(f"[HTF_MOMENTUM] {position.symbol}: Error getting 5m data: {e}")
+                                
+                                try:
+                                    # Get 15m historical data
+                                    rates_15m = mt5.copy_rates_from_pos(position.symbol, mt5.TIMEFRAME_M15, 0, 100)
+                                    if rates_15m is not None and len(rates_15m) > 20:
+                                        # Convert to DataFrame format
+                                        df_15m = pd.DataFrame(rates_15m)
+                                        historical_data_15m = []
+                                        for _, row in df_15m.iterrows():
+                                            historical_data_15m.append({
+                                                'time': row['time'],
+                                                'open': row['open'],
+                                                'high': row['high'],
+                                                'low': row['low'],
+                                                'close': row['close'],
+                                                'volume': row['tick_volume']
+                                            })
+                                        
+                                        # Generate 15m signal data
+                                        signal_data_15m = self.classifier.generate_signal(historical_data_15m[-1:], historical_data_15m)
+                                        logger.debug(f"[HTF_MOMENTUM] {position.symbol}: 15m signal data generated")
+                                    else:
+                                        logger.warning(f"[HTF_MOMENTUM] {position.symbol}: No 15m data available")
+                                except Exception as e:
+                                    logger.warning(f"[HTF_MOMENTUM] {position.symbol}: Error getting 15m data: {e}")
+                            else:
+                                logger.warning(f"[HTF_MOMENTUM] {position.symbol}: MT5 not initialized, using 1m only")
                             
                             # Calculate bars held (time since position opened)
                             from datetime import datetime, timedelta
@@ -379,18 +437,20 @@ class LorentzianTradingBot:
                             # Assuming 1 bar = 1 minute for M1 timeframe
                             bars_held = int(time_held.total_seconds() / 60)
                             
-                            logger.debug(f"[MOMENTUM_EXIT] {position.symbol}: bars_held={bars_held}, signal_data available")
+                            logger.debug(f"[HTF_MOMENTUM] {position.symbol}: bars_held={bars_held}, 1m={signal_data_1m is not None}, 5m={signal_data_5m is not None}, 15m={signal_data_15m is not None}")
                             
                         except Exception as e:
-                            logger.warning(f"⚠️ [MOMENTUM_EXIT] Error generating signal data for {position.symbol}: {e}")
+                            logger.warning(f"⚠️ [HTF_MOMENTUM] Error generating signal data for {position.symbol}: {e}")
                     
-                    # Update position with trailing stop logic AND momentum exit checks
+                    # Update position with trailing stop logic AND multi-timeframe momentum exit checks
                     self.risk_manager.update_position_prices(
                         position.symbol, 
                         current_price, 
                         historical_data,
-                        signal_data,  # NEW: Pass signal data for momentum exits
-                        bars_held     # NEW: Pass bars held for time-based exits
+                        signal_data_1m,  # 1m signal data for momentum exits
+                        bars_held,       # Bars held for time-based exits
+                        signal_data_5m,  # NEW: 5m signal data for HTF momentum
+                        signal_data_15m  # NEW: 15m signal data for HTF momentum
                     )
                     
                     # Position monitoring completed (momentum exits and ATR logic handled in update_position_prices)

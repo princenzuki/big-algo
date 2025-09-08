@@ -701,7 +701,8 @@ class RiskManager:
         return pnl
     
     def update_position_prices(self, symbol: str, current_price: float, historical_data: List[Dict] = None, 
-                              signal_data: Dict = None, bars_held: int = None):
+                              signal_data_1m: Dict = None, bars_held: int = None, 
+                              signal_data_5m: Dict = None, signal_data_15m: Dict = None):
         """
         Update position with current market price for monitoring and trailing stops.
         Now includes momentum-based exit conditions from generate_exit_conditions().
@@ -718,31 +719,47 @@ class RiskManager:
         
         position = self.positions[symbol]
         
-        # 🎯 MOMENTUM EXIT CHECKS (NEW - Equal Priority to ATR Exits)
-        if signal_data and bars_held is not None:
+        # 🎯 MULTI-TIMEFRAME MOMENTUM EXIT CHECKS (ENHANCED - HTF Protection)
+        if signal_data_1m and bars_held is not None:
             try:
                 from core.signals import generate_exit_conditions
                 
-                # Generate momentum exit conditions
-                exit_conditions = generate_exit_conditions(signal_data, bars_held)
+                # Generate 1m momentum exit conditions
+                exit_conditions_1m = generate_exit_conditions(signal_data_1m, bars_held)
                 
-                # Check for momentum-based exits
-                if position.side == 'buy' and exit_conditions.get('end_long_trade', False):
-                    # Determine specific momentum exit reason
-                    exit_reason = self._determine_momentum_exit_reason(signal_data, bars_held, 'long')
-                    logger.info(f"🎯 [MOMENTUM_EXIT] {symbol}: Long position closed due to momentum conditions - {exit_reason}")
-                    self.close_position(symbol, current_price, f"momentum_exit_{exit_reason}")
-                    return  # Exit immediately, don't check other conditions
+                # 🚀 NEW: Check HTF momentum alignment before allowing exit
+                should_exit = False
+                exit_reason = "unknown"
+                
+                if position.side == 'buy' and exit_conditions_1m.get('end_long_trade', False):
+                    # 1m wants to exit long - check if HTF still supports
+                    htf_alignment = self._check_htf_momentum_alignment(signal_data_5m, signal_data_15m, 'long')
                     
-                elif position.side == 'sell' and exit_conditions.get('end_short_trade', False):
-                    # Determine specific momentum exit reason
-                    exit_reason = self._determine_momentum_exit_reason(signal_data, bars_held, 'short')
-                    logger.info(f"🎯 [MOMENTUM_EXIT] {symbol}: Short position closed due to momentum conditions - {exit_reason}")
-                    self.close_position(symbol, current_price, f"momentum_exit_{exit_reason}")
+                    if htf_alignment['should_exit']:
+                        should_exit = True
+                        exit_reason = f"1m_momentum_{htf_alignment['reason']}"
+                        logger.info(f"🎯 [MTF_EXIT] {symbol}: Long position closed - 1m+5m+15m all oppose: {htf_alignment['details']}")
+                    else:
+                        logger.info(f"🛡️ [HTF_PROTECTION] {symbol}: Long position HELD - HTF still supports: {htf_alignment['details']}")
+                        
+                elif position.side == 'sell' and exit_conditions_1m.get('end_short_trade', False):
+                    # 1m wants to exit short - check if HTF still supports
+                    htf_alignment = self._check_htf_momentum_alignment(signal_data_5m, signal_data_15m, 'short')
+                    
+                    if htf_alignment['should_exit']:
+                        should_exit = True
+                        exit_reason = f"1m_momentum_{htf_alignment['reason']}"
+                        logger.info(f"🎯 [MTF_EXIT] {symbol}: Short position closed - 1m+5m+15m all oppose: {htf_alignment['details']}")
+                    else:
+                        logger.info(f"🛡️ [HTF_PROTECTION] {symbol}: Short position HELD - HTF still supports: {htf_alignment['details']}")
+                
+                # Execute exit if all timeframes agree
+                if should_exit:
+                    self.close_position(symbol, current_price, f"mtf_momentum_exit_{exit_reason}")
                     return  # Exit immediately, don't check other conditions
                     
             except Exception as e:
-                logger.warning(f"⚠️ [MOMENTUM_EXIT] Error checking momentum exits for {symbol}: {e}")
+                logger.warning(f"⚠️ [MTF_MOMENTUM_EXIT] Error checking multi-timeframe momentum exits for {symbol}: {e}")
         
         # 📈 ATR TRAILING STOP LOGIC (EXISTING - Preserved)
         if historical_data:
@@ -770,6 +787,92 @@ class RiskManager:
                 logger.info(f"🎯 [ATR_TAKE_PROFIT] {symbol}: Short position closed at take profit")
                 self.close_position(symbol, current_price, "atr_take_profit")
     
+    def _check_htf_momentum_alignment(self, signal_data_5m: Dict, signal_data_15m: Dict, position_side: str) -> Dict:
+        """
+        Check if higher timeframe momentum still supports the position
+        
+        Args:
+            signal_data_5m: 5m signal data (can be None)
+            signal_data_15m: 15m signal data (can be None)
+            position_side: 'long' or 'short'
+            
+        Returns:
+            Dict with 'should_exit', 'reason', and 'details'
+        """
+        try:
+            # If no HTF data available, allow exit (fallback to 1m only)
+            if not signal_data_5m and not signal_data_15m:
+                return {
+                    'should_exit': True,
+                    'reason': 'no_htf_data',
+                    'details': 'No 5m/15m data available - using 1m only'
+                }
+            
+            # Check 5m momentum
+            momentum_5m = 'neutral'
+            if signal_data_5m:
+                signal_5m = signal_data_5m.get('signal', 0)
+                if signal_5m > 0:
+                    momentum_5m = 'bullish'
+                elif signal_5m < 0:
+                    momentum_5m = 'bearish'
+            
+            # Check 15m momentum
+            momentum_15m = 'neutral'
+            if signal_data_15m:
+                signal_15m = signal_data_15m.get('signal', 0)
+                if signal_15m > 0:
+                    momentum_15m = 'bullish'
+                elif signal_15m < 0:
+                    momentum_15m = 'bearish'
+            
+            # Determine if HTF momentum opposes the position
+            if position_side == 'long':
+                # For long positions, check if HTF momentum is bearish
+                opposes_5m = momentum_5m == 'bearish'
+                opposes_15m = momentum_15m == 'bearish'
+                
+                # Exit only if BOTH 5m and 15m oppose (or if one is missing and the other opposes)
+                if (opposes_5m and opposes_15m) or (not signal_data_5m and opposes_15m) or (not signal_data_15m and opposes_5m):
+                    return {
+                        'should_exit': True,
+                        'reason': 'htf_opposes',
+                        'details': f'5m={momentum_5m}, 15m={momentum_15m} - both oppose long'
+                    }
+                else:
+                    return {
+                        'should_exit': False,
+                        'reason': 'htf_supports',
+                        'details': f'5m={momentum_5m}, 15m={momentum_15m} - HTF still supports long'
+                    }
+                    
+            else:  # position_side == 'short'
+                # For short positions, check if HTF momentum is bullish
+                opposes_5m = momentum_5m == 'bullish'
+                opposes_15m = momentum_15m == 'bullish'
+                
+                # Exit only if BOTH 5m and 15m oppose (or if one is missing and the other opposes)
+                if (opposes_5m and opposes_15m) or (not signal_data_5m and opposes_15m) or (not signal_data_15m and opposes_5m):
+                    return {
+                        'should_exit': True,
+                        'reason': 'htf_opposes',
+                        'details': f'5m={momentum_5m}, 15m={momentum_15m} - both oppose short'
+                    }
+                else:
+                    return {
+                        'should_exit': False,
+                        'reason': 'htf_supports',
+                        'details': f'5m={momentum_5m}, 15m={momentum_15m} - HTF still supports short'
+                    }
+                    
+        except Exception as e:
+            logger.warning(f"Error checking HTF momentum alignment: {e}")
+            return {
+                'should_exit': True,
+                'reason': 'error',
+                'details': f'Error checking HTF alignment: {e}'
+            }
+
     def _determine_momentum_exit_reason(self, signal_data: Dict, bars_held: int, side: str) -> str:
         """
         Determine the specific reason for momentum-based exit
