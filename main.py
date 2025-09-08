@@ -281,6 +281,10 @@ class LorentzianTradingBot:
             historical_data = self.historical_data.get(symbol, [])
             logger.info(f"   [DATA] Historical data: {len(historical_data)} bars")
             
+            # Debug: Check if we have enough data for ML
+            if len(historical_data) < 8:
+                logger.warning(f"   [WARNING] Insufficient data for ML: {len(historical_data)} bars (need at least 8)")
+            
             # Generate ML signal (Pine Script logic - no minimum data requirement)
             logger.info(f"   [ML] Generating ML signal...")
             signal_data = self.classifier.generate_signal(ohlc_data, historical_data)
@@ -296,21 +300,27 @@ class LorentzianTradingBot:
             confidence = signal_data.get('confidence', 0.0)
             
             logger.info(f"   [SIGNAL] Signal: {signal} | Confidence: {confidence:.3f}")
+            logger.info(f"   [DEBUG] Signal data: prediction={signal_data.get('prediction', 'N/A')}, filter_applied={signal_data.get('filter_applied', 'N/A')}")
             
-            # Check confidence threshold
-            min_confidence = symbol_config.get('min_confidence', 0.3)
-            if confidence < min_confidence:
-                logger.info(f"   [SKIP] Confidence too low ({confidence:.3f} < {min_confidence:.3f})")
-                cycle_stats['trades_skipped'] += 1
-                cycle_stats['skip_reasons']['Low confidence'] = cycle_stats['skip_reasons'].get('Low confidence', 0) + 1
-                return
+            # NOTE: Pine Script doesn't use confidence threshold for entry!
+            # Confidence is only used for exit conditions (when confidence < 0.1)
+            # The signal generation already includes all necessary filters
+            logger.info(f"   [DEBUG] Confidence: {confidence:.3f} (not used for entry in Pine Script)")
             
-            # Check if signal is neutral
-            if signal == 'NEUTRAL':
-                logger.info(f"   [SKIP] Neutral signal")
+            # REMOVED: Confidence threshold check - Pine Script doesn't use this for entry
+            # The signal generation already includes all necessary filters
+            
+            # Check if signal is neutral (Pine Script uses 0 for neutral, not 'NEUTRAL')
+            if signal == 0 or signal == 'NEUTRAL':
+                logger.info(f"   [SKIP] Neutral signal (value: {signal})")
                 cycle_stats['trades_skipped'] += 1
                 cycle_stats['skip_reasons']['Neutral signal'] = cycle_stats['skip_reasons'].get('Neutral signal', 0) + 1
                 return
+            
+            # Debug: Check signal values
+            logger.info(f"   [DEBUG] Signal type: {type(signal)}, value: {signal}")
+            if signal not in [1, -1]:
+                logger.warning(f"   [WARNING] Unexpected signal value: {signal}")
             
             # Check spread
             symbol_info = self.broker_adapter.get_symbol_info(symbol)
@@ -433,8 +443,7 @@ class LorentzianTradingBot:
             
             logger.info(f"   [PROCESS] Processing {signal} signal for {symbol}...")
             
-            if signal == 0:  # Neutral signal
-                return
+            # Signal validation already done in main loop, proceed with processing
             
             # Get historical data for MTF validation
             historical_data = self.historical_data.get(symbol, [])
