@@ -495,7 +495,7 @@ class RiskManager:
         
         return lot_size, risk_amount
     
-    def can_open_position(self, symbol: str, spread_pips: float, new_trade_risk: float = None) -> Tuple[bool, str]:
+    def can_open_position(self, symbol: str, spread_pips: float, new_trade_risk: float = None, side: str = None) -> Tuple[bool, str]:
         """
         Check if position can be opened based on risk rules
         
@@ -503,6 +503,7 @@ class RiskManager:
             symbol: Trading symbol
             spread_pips: Current spread in pips
             new_trade_risk: Risk amount for the new trade (optional)
+            side: Trade direction ('buy' or 'sell') for duplicate direction check
             
         Returns:
             Tuple of (can_open, reason)
@@ -511,16 +512,31 @@ class RiskManager:
         if symbol in self._position_locks and self._position_locks[symbol]:
             return False, "POSITION_LOCKED"
         
-        # Check if symbol already has open position (strengthened duplicate prevention)
-        if symbol in self.positions:
-            position = self.positions[symbol]
-            if position.status == 'open':
-                return False, "DUPLICATE_SYMBOL"
-            # Also check if position was recently closed (within last 5 minutes) to prevent rapid re-entry
-            if position.status == 'closed' and hasattr(position, 'close_time'):
-                from datetime import datetime, timedelta
-                if datetime.now() - position.close_time < timedelta(minutes=5):
-                    return False, "RECENT_CLOSE_COOLDOWN"
+        # Check for duplicate positions using actual MT5 positions
+        try:
+            import MetaTrader5 as mt5
+            mt5_positions = mt5.positions_get(symbol=symbol)
+            
+            if mt5_positions is not None and len(mt5_positions) > 0:
+                for mt5_position in mt5_positions:
+                    # Check for same-direction duplicate trades
+                    if side:
+                        # Convert MT5 position type to our side format
+                        mt5_side = 'buy' if mt5_position.type == 0 else 'sell'  # 0=BUY, 1=SELL
+                        if mt5_side == side:
+                            return False, f"DUPLICATE_{side.upper()}_POSITION"
+                    # General duplicate check (any open position on same symbol)
+                    return False, "DUPLICATE_SYMBOL"
+                    
+        except Exception as e:
+            logger.warning(f"Failed to check MT5 positions for {symbol}: {e}")
+            # Fallback to internal positions check if MT5 check fails
+            if symbol in self.positions:
+                position = self.positions[symbol]
+                if position.status == 'open':
+                    if side and position.side == side:
+                        return False, f"DUPLICATE_{side.upper()}_POSITION"
+                    return False, "DUPLICATE_SYMBOL"
         
         # Check cooldown
         if symbol in self.cooldowns:

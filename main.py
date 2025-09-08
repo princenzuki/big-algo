@@ -653,7 +653,7 @@ class LorentzianTradingBot:
                 return
             
             # Check if we can open a position with the calculated risk amount
-            can_open, reason = self.risk_manager.can_open_position(symbol, symbol_info.spread, risk_amount)
+            can_open, reason = self.risk_manager.can_open_position(symbol, symbol_info.spread, risk_amount, side)
             if not can_open:
                 logger.info(f"   [SKIP] {reason}")
                 cycle_stats['trades_skipped'] += 1
