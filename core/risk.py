@@ -285,9 +285,8 @@ def calculate_hybrid_stop_loss(symbol: str, entry_price: float, side: str,
 @dataclass
 class RiskSettings:
     """Risk management configuration"""
-    max_risk_per_trade: float = 0.02  # 2% per trade
-    max_daily_risk: float = 0.05  # 5% daily
-    max_total_risk: float = 0.10  # 10% total
+    max_risk_per_trade: float = 0.05  # 5% per trade (confidence-based: 1% to 5%)
+    max_total_risk: float = 0.10  # 10% total account risk (unlimited trades per day)
     min_lot_size: float = 0.01
     max_concurrent_trades: int = 5
     cooldown_minutes: int = 10
@@ -458,9 +457,12 @@ class RiskManager:
             return 0.0, 0.0
         
         # Calculate risk per trade based on confidence
-        base_risk_percent = self.settings.max_risk_per_trade * 100  # Convert to percentage
-        confidence_multiplier = 0.5 + (confidence * 0.5)  # 0.5 to 1.0 range
-        risk_percent = base_risk_percent * confidence_multiplier
+        # Base risk: 2% per trade
+        # Confidence scaling: 1% to 5% based on confidence (0.0 to 1.0)
+        # Formula: risk = 1% + (confidence * 4%) = 1% to 5% range
+        base_risk_percent = 1.0  # Minimum 1% risk
+        confidence_boost = confidence * 4.0  # Up to 4% additional risk for high confidence
+        risk_percent = base_risk_percent + confidence_boost  # 1% to 5% range
         
         # Calculate risk amount in account currency
         risk_amount = self.account_info.equity * (risk_percent / 100.0)
@@ -474,7 +476,10 @@ class RiskManager:
             return 0.0, 0.0
         
         # Calculate lot size
-        lot_size = risk_amount / (stop_distance_pips * pip_value)
+        # For standard lots: 1 lot = 100,000 units
+        # Risk per pip = lot_size * 100,000 * pip_value
+        # So: lot_size = risk_amount / (stop_distance_pips * pip_value * 100000)
+        lot_size = risk_amount / (stop_distance_pips * pip_value * 100000)
         
         # Apply minimum lot size
         lot_size = max(lot_size, self.settings.min_lot_size)
@@ -482,18 +487,20 @@ class RiskManager:
         # Note: Lot size will be properly rounded by the broker adapter
         # using the actual lot_step from symbol_info
         
-        logger.info(f"Position sizing for {symbol}: Risk={risk_amount:.2f}, "
+        logger.info(f"Position sizing for {symbol}: Confidence={confidence:.3f}, "
+                   f"Risk={risk_percent:.1f}% (${risk_amount:.2f}), "
                    f"Lots={lot_size:.2f}, Stop={stop_distance_pips:.1f} pips")
         
         return lot_size, risk_amount
     
-    def can_open_position(self, symbol: str, spread_pips: float) -> Tuple[bool, str]:
+    def can_open_position(self, symbol: str, spread_pips: float, new_trade_risk: float = None) -> Tuple[bool, str]:
         """
         Check if position can be opened based on risk rules
         
         Args:
             symbol: Trading symbol
             spread_pips: Current spread in pips
+            new_trade_risk: Risk amount for the new trade (optional)
             
         Returns:
             Tuple of (can_open, reason)
@@ -521,9 +528,24 @@ class RiskManager:
         if not self.account_info:
             return False, "NO_ACCOUNT_INFO"
         
-        current_risk = self._calculate_current_risk()
-        if current_risk >= self.settings.max_total_risk * 100:
-            return False, f"RISK_CAP_REACHED_{current_risk:.1f}%"
+        # Calculate current risk from open positions
+        current_risk_amount = sum(p.risk_amount for p in self.positions.values() if p.status == 'open')
+        
+        # If new trade risk is provided, check if total would exceed limit
+        if new_trade_risk is not None:
+            total_risk_amount = current_risk_amount + new_trade_risk
+            max_total_risk_amount = self.account_info.equity * self.settings.max_total_risk
+            
+            if total_risk_amount > max_total_risk_amount:
+                current_risk_pct = (current_risk_amount / self.account_info.equity) * 100
+                new_risk_pct = (new_trade_risk / self.account_info.equity) * 100
+                total_risk_pct = (total_risk_amount / self.account_info.equity) * 100
+                return False, f"TOTAL_RISK_EXCEEDED_{total_risk_pct:.1f}%_({current_risk_pct:.1f}%_current_+_{new_risk_pct:.1f}%_new)"
+        
+        # Fallback: check current risk percentage (for backward compatibility)
+        current_risk_pct = (current_risk_amount / self.account_info.equity) * 100
+        if current_risk_pct >= self.settings.max_total_risk * 100:
+            return False, f"RISK_CAP_REACHED_{current_risk_pct:.1f}%"
         
         return True, "OK"
     
@@ -545,19 +567,19 @@ class RiskManager:
         Returns:
             Position object if successful, None if rejected
         """
-        # Check if position can be opened
-        can_open, reason = self.can_open_position(symbol, spread_pips)
-        if not can_open:
-            logger.warning(f"Position rejected for {symbol}: {reason}")
-            return None
-        
-        # Calculate position size
+        # Calculate position size first to get risk amount
         lot_size, risk_amount = self.calculate_position_size(
             symbol, entry_price, stop_loss, confidence
         )
         
         if lot_size <= 0:
-            logger.warning(f"Invalid lot size for {symbol}: {lot_size}")
+            logger.warning(f"Invalid lot size calculated for {symbol}: {lot_size}")
+            return None
+        
+        # Check if position can be opened with the calculated risk amount
+        can_open, reason = self.can_open_position(symbol, spread_pips, risk_amount)
+        if not can_open:
+            logger.warning(f"Position rejected for {symbol}: {reason}")
             return None
         
         # Create position

@@ -641,18 +641,24 @@ class LorentzianTradingBot:
             
             logger.info(f"[OK] SAFETY CHECK PASSED: Both SL and TP are valid and logically placed")
             
-            # Check if we can open a position
-            can_open, reason = self.risk_manager.can_open_position(symbol, symbol_info.spread)
+            # Calculate position size first to get risk amount
+            lot_size, risk_amount = self.risk_manager.calculate_position_size(
+                symbol, entry_price, stop_loss, confidence
+            )
+            
+            if lot_size is None or lot_size <= 0:
+                logger.error(f"   [SKIP] Invalid lot size calculated: {lot_size}")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons']['Invalid lot size'] = cycle_stats['skip_reasons'].get('Invalid lot size', 0) + 1
+                return
+            
+            # Check if we can open a position with the calculated risk amount
+            can_open, reason = self.risk_manager.can_open_position(symbol, symbol_info.spread, risk_amount)
             if not can_open:
                 logger.info(f"   [SKIP] {reason}")
                 cycle_stats['trades_skipped'] += 1
                 cycle_stats['skip_reasons'][reason] = cycle_stats['skip_reasons'].get(reason, 0) + 1
                 return
-            
-            # Calculate position size
-            lot_size, risk_amount = self.risk_manager.calculate_position_size(
-                symbol, entry_price, stop_loss, confidence
-            )
             
             # Apply MTF lot multiplier
             original_lot_size = lot_size
