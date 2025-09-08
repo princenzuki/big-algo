@@ -435,6 +435,7 @@ class RiskManager:
         self._position_locks: Dict[str, bool] = {}  # symbol -> is_locked (prevents race conditions)
         self._starting_balance: Optional[float] = None  # Track starting balance for drawdown calculation
         self._max_equity_peak: Optional[float] = None  # Track highest equity reached
+        self._last_trade_close_time: Optional[datetime] = None  # Track last trade close for global cooldown
         
     def update_account_info(self, account_info: AccountInfo):
         """Update account information for risk calculations"""
@@ -696,9 +697,35 @@ class RiskManager:
         # Start cooldown
         self.cooldowns[symbol] = datetime.now() + timedelta(minutes=self.settings.cooldown_minutes)
         
+        # 🚀 NEW: Record global trade close time for 10-minute cooldown
+        self._last_trade_close_time = datetime.now()
+        
         logger.info(f"Position closed: {symbol} @ {close_price}, P&L={pnl:.2f}, Reason={reason}")
+        logger.info(f"[COOLDOWN] Global 10-minute cooldown started at {self._last_trade_close_time.strftime('%H:%M:%S')}")
         
         return pnl
+    
+    def is_in_global_cooldown(self) -> tuple[bool, str]:
+        """
+        Check if the bot is in global cooldown period (10 minutes after last trade close)
+        
+        Returns:
+            Tuple of (is_in_cooldown, message)
+        """
+        if self._last_trade_close_time is None:
+            return False, "No previous trades"
+        
+        current_time = datetime.now()
+        time_since_close = current_time - self._last_trade_close_time
+        cooldown_duration = timedelta(minutes=10)
+        
+        if time_since_close < cooldown_duration:
+            remaining_time = cooldown_duration - time_since_close
+            remaining_minutes = int(remaining_time.total_seconds() / 60)
+            remaining_seconds = int(remaining_time.total_seconds() % 60)
+            return True, f"still in cooldown window ({remaining_minutes}m {remaining_seconds}s left)"
+        
+        return False, "cooldown expired"
     
     def update_position_prices(self, symbol: str, current_price: float, historical_data: List[Dict] = None, 
                               signal_data_1m: Dict = None, bars_held: int = None, 

@@ -815,6 +815,14 @@ class LorentzianTradingBot:
                 cycle_stats['skip_reasons']['Lot size too small'] = cycle_stats['skip_reasons'].get('Lot size too small', 0) + 1
                 return
             
+            # 🚀 NEW: Check global cooldown period (10 minutes after last trade close)
+            is_in_cooldown, cooldown_message = self.risk_manager.is_in_global_cooldown()
+            if is_in_cooldown:
+                logger.info(f"   [COOLDOWN] Trade blocked: {cooldown_message}")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons']['Global cooldown'] = cycle_stats['skip_reasons'].get('Global cooldown', 0) + 1
+                return
+            
             # Place order
             from adapters.broker_base import OrderRequest
             
