@@ -433,12 +433,29 @@ class RiskManager:
         self.cooldowns: Dict[str, datetime] = {}  # symbol -> cooldown_end_time
         self.account_info: Optional[AccountInfo] = None
         self._position_locks: Dict[str, bool] = {}  # symbol -> is_locked (prevents race conditions)
+        self._starting_balance: Optional[float] = None  # Track starting balance for drawdown calculation
+        self._max_equity_peak: Optional[float] = None  # Track highest equity reached
         
     def update_account_info(self, account_info: AccountInfo):
         """Update account information for risk calculations"""
         self.account_info = account_info
+        
+        # Initialize starting balance and equity peak tracking
+        if self._starting_balance is None:
+            self._starting_balance = account_info.balance
+            self._max_equity_peak = account_info.equity
+            logger.info(f"🎯 DRAWDOWN TRACKING INITIALIZED: Starting Balance=${self._starting_balance:.2f}, Starting Equity=${self._max_equity_peak:.2f}")
+        
+        # Update equity peak if current equity is higher
+        if self._max_equity_peak is None or account_info.equity > self._max_equity_peak:
+            self._max_equity_peak = account_info.equity
+        
+        # Calculate current drawdown
+        current_drawdown = self._calculate_actual_drawdown()
+        
         logger.info(f"Account updated: Balance={account_info.balance:.2f}, "
-                   f"Equity={account_info.equity:.2f}, Free Margin={account_info.free_margin:.2f}")
+                   f"Equity={account_info.equity:.2f}, Free Margin={account_info.free_margin:.2f}, "
+                   f"Drawdown={current_drawdown:.2f}%")
     
     def calculate_position_size(self, symbol: str, entry_price: float, 
                               stop_loss: float, confidence: float) -> Tuple[float, float]:
@@ -556,6 +573,14 @@ class RiskManager:
         # Check account risk
         if not self.account_info:
             return False, "NO_ACCOUNT_INFO"
+        
+        # 🚨 CRITICAL: Check actual account drawdown first (10% max drawdown limit)
+        current_drawdown = self._calculate_actual_drawdown()
+        max_drawdown_limit = self.settings.max_account_risk_percent  # 10% from settings
+        
+        if current_drawdown >= max_drawdown_limit:
+            logger.warning(f"🚨 DRAWDOWN LIMIT EXCEEDED: {current_drawdown:.2f}% >= {max_drawdown_limit:.2f}% - BLOCKING ALL NEW TRADES")
+            return False, f"DRAWDOWN_LIMIT_EXCEEDED_{current_drawdown:.1f}%_>=_{max_drawdown_limit:.1f}%"
         
         # Calculate current risk from open positions
         current_risk_amount = sum(p.risk_amount for p in self.positions.values() if p.status == 'open')
@@ -675,36 +700,134 @@ class RiskManager:
         
         return pnl
     
-    def update_position_prices(self, symbol: str, current_price: float, historical_data: List[Dict] = None):
+    def update_position_prices(self, symbol: str, current_price: float, historical_data: List[Dict] = None, 
+                              signal_data: Dict = None, bars_held: int = None):
         """
-        Update position with current market price for monitoring and trailing stops
+        Update position with current market price for monitoring and trailing stops.
+        Now includes momentum-based exit conditions from generate_exit_conditions().
+        
+        Args:
+            symbol: Trading symbol
+            current_price: Current market price
+            historical_data: Historical OHLC data for ATR calculation
+            signal_data: Current signal data for momentum exit checks
+            bars_held: Number of bars position has been held
         """
         if symbol not in self.positions or self.positions[symbol].status != 'open':
             return
         
         position = self.positions[symbol]
         
-        # Update trailing stop if historical data is available
+        # 🎯 MOMENTUM EXIT CHECKS (NEW - Equal Priority to ATR Exits)
+        if signal_data and bars_held is not None:
+            try:
+                from core.signals import generate_exit_conditions
+                
+                # Generate momentum exit conditions
+                exit_conditions = generate_exit_conditions(signal_data, bars_held)
+                
+                # Check for momentum-based exits
+                if position.side == 'buy' and exit_conditions.get('end_long_trade', False):
+                    # Determine specific momentum exit reason
+                    exit_reason = self._determine_momentum_exit_reason(signal_data, bars_held, 'long')
+                    logger.info(f"🎯 [MOMENTUM_EXIT] {symbol}: Long position closed due to momentum conditions - {exit_reason}")
+                    self.close_position(symbol, current_price, f"momentum_exit_{exit_reason}")
+                    return  # Exit immediately, don't check other conditions
+                    
+                elif position.side == 'sell' and exit_conditions.get('end_short_trade', False):
+                    # Determine specific momentum exit reason
+                    exit_reason = self._determine_momentum_exit_reason(signal_data, bars_held, 'short')
+                    logger.info(f"🎯 [MOMENTUM_EXIT] {symbol}: Short position closed due to momentum conditions - {exit_reason}")
+                    self.close_position(symbol, current_price, f"momentum_exit_{exit_reason}")
+                    return  # Exit immediately, don't check other conditions
+                    
+            except Exception as e:
+                logger.warning(f"⚠️ [MOMENTUM_EXIT] Error checking momentum exits for {symbol}: {e}")
+        
+        # 📈 ATR TRAILING STOP LOGIC (EXISTING - Preserved)
         if historical_data:
             current_atr = self._calculate_current_atr(historical_data)
             if current_atr > 0:
                 new_stop, updated, log_msg = calculate_trailing_stop(position, current_price, current_atr, historical_data)
                 if updated:
-                    logger.info(f"[TRAILING] {symbol}: {log_msg}")
+                    logger.info(f"📈 [ATR_TRAILING] {symbol}: {log_msg}")
                     # Update the stop loss in MT5 if needed
                     self._update_stop_loss_in_mt5(symbol, new_stop)
         
-        # Check for stop loss or take profit
+        # 🛑 ATR STOP LOSS & TAKE PROFIT CHECKS (EXISTING - Preserved)
         if position.side == 'buy':
             if current_price <= position.stop_loss:
-                self.close_position(symbol, current_price, "stop_loss")
+                logger.info(f"🛑 [ATR_STOP_LOSS] {symbol}: Long position closed at stop loss")
+                self.close_position(symbol, current_price, "atr_stop_loss")
             elif current_price >= position.take_profit:
-                self.close_position(symbol, current_price, "take_profit")
+                logger.info(f"🎯 [ATR_TAKE_PROFIT] {symbol}: Long position closed at take profit")
+                self.close_position(symbol, current_price, "atr_take_profit")
         else:  # sell
             if current_price >= position.stop_loss:
-                self.close_position(symbol, current_price, "stop_loss")
+                logger.info(f"🛑 [ATR_STOP_LOSS] {symbol}: Short position closed at stop loss")
+                self.close_position(symbol, current_price, "atr_stop_loss")
             elif current_price <= position.take_profit:
-                self.close_position(symbol, current_price, "take_profit")
+                logger.info(f"🎯 [ATR_TAKE_PROFIT] {symbol}: Short position closed at take profit")
+                self.close_position(symbol, current_price, "atr_take_profit")
+    
+    def _determine_momentum_exit_reason(self, signal_data: Dict, bars_held: int, side: str) -> str:
+        """
+        Determine the specific reason for momentum-based exit
+        
+        Args:
+            signal_data: Current signal data
+            bars_held: Number of bars position has been held
+            side: 'long' or 'short'
+            
+        Returns:
+            String describing the specific exit reason
+        """
+        try:
+            confidence = signal_data.get('confidence', 0.0)
+            feature_series = signal_data.get('feature_series')
+            
+            # Check confidence-based exit first
+            if confidence < 0.1:
+                return f"low_confidence_{confidence:.3f}"
+            
+            # Check time-based exit
+            if bars_held == 4:
+                return f"time_based_4_bars"
+            
+            # Check momentum indicator exits
+            if feature_series and bars_held >= 2:
+                if side == 'long':
+                    # Check for overbought conditions
+                    rsi_f1 = feature_series.f1 if hasattr(feature_series, 'f1') else 50.0
+                    williams_r = feature_series.f2 if hasattr(feature_series, 'f2') else -50.0
+                    cci = feature_series.f3 if hasattr(feature_series, 'f3') else 0.0
+                    
+                    if rsi_f1 > 70:
+                        return f"rsi_overbought_{rsi_f1:.1f}"
+                    elif williams_r > -20:
+                        return f"williams_overbought_{williams_r:.1f}"
+                    elif cci > 100:
+                        return f"cci_overbought_{cci:.1f}"
+                        
+                else:  # short
+                    # Check for oversold conditions
+                    rsi_f1 = feature_series.f1 if hasattr(feature_series, 'f1') else 50.0
+                    williams_r = feature_series.f2 if hasattr(feature_series, 'f2') else -50.0
+                    cci = feature_series.f3 if hasattr(feature_series, 'f3') else 0.0
+                    
+                    if rsi_f1 < 30:
+                        return f"rsi_oversold_{rsi_f1:.1f}"
+                    elif williams_r < -80:
+                        return f"williams_oversold_{williams_r:.1f}"
+                    elif cci < -100:
+                        return f"cci_oversold_{cci:.1f}"
+            
+            # Default fallback
+            return f"momentum_reversal_bars_{bars_held}"
+            
+        except Exception as e:
+            logger.warning(f"Error determining momentum exit reason: {e}")
+            return f"momentum_exit_error_{bars_held}_bars"
     
     def _calculate_current_atr(self, historical_data: List[Dict]) -> float:
         """Calculate current ATR from historical data"""
@@ -725,18 +848,87 @@ class RiskManager:
         return atr if not pd.isna(atr) else 0.0
     
     def _update_stop_loss_in_mt5(self, symbol: str, new_stop_loss: float):
-        """Update stop loss in MT5 (placeholder for now)"""
-        # This would integrate with MT5 adapter to modify the stop loss
-        # For now, we'll just log the update
-        logger.debug(f"MT5 Stop Loss Update: {symbol} -> {new_stop_loss:.5f}")
+        """Update stop loss in MT5 - ACTUALLY SEND TO MT5"""
+        try:
+            # Get the position to find the ticket
+            if symbol not in self.positions:
+                logger.warning(f"Cannot update SL for {symbol}: position not found")
+                return False
+            
+            position = self.positions[symbol]
+            if position.status != 'open':
+                logger.warning(f"Cannot update SL for {symbol}: position not open")
+                return False
+            
+            # Import MT5 adapter to modify position
+            from adapters.mt5_adapter import MT5Adapter
+            mt5_adapter = MT5Adapter()
+            
+            # Get current position ticket from MT5
+            import MetaTrader5 as mt5
+            mt5_positions = mt5.positions_get(symbol=symbol)
+            
+            if not mt5_positions or len(mt5_positions) == 0:
+                logger.warning(f"Cannot update SL for {symbol}: no MT5 position found")
+                return False
+            
+            # Use the first position found for this symbol
+            mt5_position = mt5_positions[0]
+            ticket = mt5_position.ticket
+            
+            # Update the stop loss in MT5
+            success = mt5_adapter.modify_position(
+                ticket=ticket,
+                stop_loss=new_stop_loss,
+                take_profit=None  # Keep existing TP
+            )
+            
+            if success:
+                # Update our internal position tracking
+                position.stop_loss = new_stop_loss
+                logger.info(f"✅ [MT5_UPDATE] {symbol}: Stop loss updated to {new_stop_loss:.5f} (Ticket: {ticket})")
+                return True
+            else:
+                logger.error(f"❌ [MT5_UPDATE] {symbol}: Failed to update stop loss to {new_stop_loss:.5f}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ [MT5_UPDATE] Error updating stop loss for {symbol}: {e}")
+            return False
     
     def _calculate_current_risk(self) -> float:
-        """Calculate current account risk percentage"""
+        """Calculate current account risk percentage from open positions"""
         if not self.account_info:
             return 0.0
         
         total_risk = sum(p.risk_amount for p in self.positions.values() if p.status == 'open')
         return (total_risk / self.account_info.equity) * 100.0
+    
+    def _calculate_actual_drawdown(self) -> float:
+        """
+        Calculate actual account drawdown percentage from peak equity.
+        
+        This is the REAL drawdown calculation that tracks actual losses,
+        not just potential risk amounts from open positions.
+        
+        Returns:
+            float: Current drawdown percentage (0.0 = no drawdown, 10.0 = 10% drawdown)
+        """
+        if not self.account_info or self._max_equity_peak is None:
+            return 0.0
+        
+        # Calculate drawdown from peak equity
+        if self._max_equity_peak <= 0:
+            return 0.0
+        
+        current_equity = self.account_info.equity
+        drawdown_amount = self._max_equity_peak - current_equity
+        drawdown_percentage = (drawdown_amount / self._max_equity_peak) * 100.0
+        
+        # Ensure drawdown is never negative (can't be more than 100% either)
+        drawdown_percentage = max(0.0, min(100.0, drawdown_percentage))
+        
+        return drawdown_percentage
     
     def _get_pip_value(self, symbol: str, price: float) -> float:
         """Get pip value for symbol in account currency"""
@@ -758,12 +950,18 @@ class RiskManager:
         
         open_positions = [p for p in self.positions.values() if p.status == 'open']
         current_risk = self._calculate_current_risk()
+        current_drawdown = self._calculate_actual_drawdown()
         
         return {
             "account_balance": self.account_info.balance,
             "account_equity": self.account_info.equity,
+            "starting_balance": self._starting_balance,
+            "max_equity_peak": self._max_equity_peak,
             "current_risk_percent": current_risk,
+            "current_drawdown_percent": current_drawdown,
+            "max_drawdown_percent": self.settings.max_account_risk_percent,
             "max_risk_percent": self.settings.max_account_risk_percent,
+            "drawdown_limit_exceeded": current_drawdown >= self.settings.max_account_risk_percent,
             "open_positions": len(open_positions),
             "max_positions": self.settings.max_concurrent_trades,
             "positions": [

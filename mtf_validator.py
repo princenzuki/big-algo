@@ -374,7 +374,12 @@ class MultiTimeframeValidator:
         # Determine signal direction
         signal_direction = 'bullish' if signal > 0 else 'bearish'
         
-        # Main debug logging - show all timeframes side-by-side
+        # Enhanced HTF vs LTF logging
+        ltf_signal = f"1m={signal_direction.upper()}"
+        htf_5m = f"5m={tf_5m.upper()}" if tf_5m != 'neutral' else "5m=NEUTRAL"
+        htf_15m = f"15m={tf_15m.upper()}" if tf_15m != 'neutral' else "15m=NEUTRAL"
+        
+        self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | LTF: {ltf_signal} | HTF: {htf_5m}, {htf_15m}")
         self.logger.info(f"[MTF_DEBUG] Symbol: {tf_analysis.get('symbol', 'UNKNOWN')} | 1m: {signal_1m}({confidence_1m:.3f}), 5m: {signal_5m}({confidence_5m:.3f}), 15m: {signal_15m}({confidence_15m:.3f}), Final Action: {signal_direction}")
         
         # PULLBACK DETECTION LOGIC
@@ -462,6 +467,7 @@ class MultiTimeframeValidator:
         
         # RISK SCALING BASED ON WEIGHTED SCORE
         if normalized_score >= 0.8:  # Strong alignment
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} → Score {normalized_score:.2f} (STRONG)")
             return MTFValidationResult(
                 allow_trade=True,
                 lot_multiplier=1.2,  # Large position
@@ -474,6 +480,7 @@ class MultiTimeframeValidator:
             )
         
         elif normalized_score >= 0.6:  # Good alignment
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} → Score {normalized_score:.2f} (GOOD)")
             return MTFValidationResult(
                 allow_trade=True,
                 lot_multiplier=1.0,  # Normal position
@@ -486,6 +493,7 @@ class MultiTimeframeValidator:
             )
         
         elif normalized_score >= 0.4:  # Moderate alignment
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} → Score {normalized_score:.2f} (MODERATE)")
             return MTFValidationResult(
                 allow_trade=True,
                 lot_multiplier=0.7,  # Reduced position
@@ -498,6 +506,7 @@ class MultiTimeframeValidator:
             )
         
         elif normalized_score >= 0.2:  # Weak alignment
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} → Score {normalized_score:.2f} (WEAK)")
             return MTFValidationResult(
                 allow_trade=True,
                 lot_multiplier=0.4,  # Small position
@@ -510,6 +519,20 @@ class MultiTimeframeValidator:
             )
         
         else:  # Very weak alignment or conflicting signals
+            # 🚨 CRITICAL: Block trades when HTF strongly opposes LTF signal
+            if normalized_score < self.block_threshold:  # Default 0.3
+                self.logger.warning(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} → Score {normalized_score:.2f} < {self.block_threshold}")
+                return MTFValidationResult(
+                    allow_trade=False,
+                    lot_multiplier=0.0,
+                    tp_multiplier=0.0,
+                    confidence_boost=0.0,
+                    reasoning=f"BLOCKED: HTF strongly opposes LTF signal (score: {normalized_score:.2f} < {self.block_threshold})",
+                    timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
+                    validation_score=normalized_score,
+                    scenario_label="blocked_htf_opposition"
+                )
+            
             return MTFValidationResult(
                 allow_trade=True,
                 lot_multiplier=0.3,  # Minimal position

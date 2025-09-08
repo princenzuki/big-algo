@@ -364,18 +364,36 @@ class LorentzianTradingBot:
                     # Get historical data for ATR calculation
                     historical_data = self.historical_data.get(position.symbol, [])
                     
-                    # Update position with trailing stop logic
-                    update_result = self.risk_manager.update_position_prices(
+                    # 🎯 NEW: Generate current signal data for momentum exit checks
+                    signal_data = None
+                    bars_held = None
+                    
+                    if historical_data and len(historical_data) >= 20:
+                        try:
+                            # Generate current signal data
+                            signal_data = self.classifier.generate_signal(historical_data[-1:], historical_data)
+                            
+                            # Calculate bars held (time since position opened)
+                            from datetime import datetime, timedelta
+                            time_held = datetime.now() - position.opened_at
+                            # Assuming 1 bar = 1 minute for M1 timeframe
+                            bars_held = int(time_held.total_seconds() / 60)
+                            
+                            logger.debug(f"[MOMENTUM_EXIT] {position.symbol}: bars_held={bars_held}, signal_data available")
+                            
+                        except Exception as e:
+                            logger.warning(f"⚠️ [MOMENTUM_EXIT] Error generating signal data for {position.symbol}: {e}")
+                    
+                    # Update position with trailing stop logic AND momentum exit checks
+                    self.risk_manager.update_position_prices(
                         position.symbol, 
                         current_price, 
-                        historical_data
+                        historical_data,
+                        signal_data,  # NEW: Pass signal data for momentum exits
+                        bars_held     # NEW: Pass bars held for time-based exits
                     )
                     
-                    # ✅ Break-even Logic Validation
-                    if update_result is False:
-                        logger.warning(f"⚠️ Break-even update failed for {position.symbol}")
-                    else:
-                        logger.debug(f"✅ Break-even update success for {position.symbol}")
+                    # Position monitoring completed (momentum exits and ATR logic handled in update_position_prices)
                     
                     # Check Smart Take Profit conditions
                     await self._check_smart_tp(position.symbol, current_price, historical_data)
@@ -408,14 +426,59 @@ class LorentzianTradingBot:
             logger.error(f"❌ Error in Smart TP check for {symbol}: {e}")
     
     async def _take_partial_profit(self, symbol: str, current_price: float):
-        """Take partial profit at the partial TP level"""
+        """Take partial profit at the partial TP level - ACTUALLY EXECUTE IN MT5"""
         try:
-            # Mark partial TP as taken
-            self.smart_tp.take_partial_tp(symbol)
+            # Get position info
+            if symbol not in self.risk_manager.positions:
+                logger.warning(f"Cannot take partial TP for {symbol}: position not found")
+                return
             
-            # Here you would implement the actual partial close in MT5
-            # For now, we'll just log it
-            logger.info(f"[SMART_TP] Partial profit taken for {symbol} at {current_price:.5f}")
+            position = self.risk_manager.positions[symbol]
+            if position.status != 'open':
+                logger.warning(f"Cannot take partial TP for {symbol}: position not open")
+                return
+            
+            # Get MT5 position ticket
+            import MetaTrader5 as mt5
+            mt5_positions = mt5.positions_get(symbol=symbol)
+            
+            if not mt5_positions or len(mt5_positions) == 0:
+                logger.warning(f"Cannot take partial TP for {symbol}: no MT5 position found")
+                return
+            
+            mt5_position = mt5_positions[0]
+            ticket = mt5_position.ticket
+            
+            # Calculate partial close amount (50% of position)
+            partial_volume = position.lot_size * 0.5  # Take 50% profit
+            
+            # Execute partial close in MT5
+            close_request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": symbol,
+                "position": ticket,
+                "volume": partial_volume,
+                "type": mt5.ORDER_TYPE_SELL if position.side == 'buy' else mt5.ORDER_TYPE_BUY,
+                "price": current_price,
+                "comment": "Partial TP",
+            }
+            
+            result = mt5.order_send(close_request)
+            
+            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                # Mark partial TP as taken
+                self.smart_tp.take_partial_tp(symbol)
+                
+                # Update position lot size
+                position.lot_size = position.lot_size - partial_volume
+                
+                logger.info(f"✅ [PARTIAL_TP] {symbol}: Partial profit taken - {partial_volume:.3f} lots at {current_price:.5f} (Ticket: {ticket})")
+                logger.info(f"   [REMAINING] {symbol}: {position.lot_size:.3f} lots remaining")
+            else:
+                logger.error(f"❌ [PARTIAL_TP] {symbol}: Failed to execute partial close - {result.comment if result else 'No result'}")
+                
+        except Exception as e:
+            logger.error(f"❌ [PARTIAL_TP] Error taking partial profit for {symbol}: {e}")
             
             # Note: In a full implementation, you would:
             # 1. Calculate the partial lot size (e.g., 50% of position)
