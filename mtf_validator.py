@@ -130,7 +130,7 @@ class MultiTimeframeValidator:
     
     def _get_mtf_data(self, symbol: str, historical_data: List[Dict]) -> Optional[Dict]:
         """
-        Get multi-timeframe data (1m, 5m, 15m) for the symbol
+        Get REAL multi-timeframe data (1m, 5m, 15m) from MT5
         
         Args:
             symbol: Trading symbol
@@ -140,21 +140,60 @@ class MultiTimeframeValidator:
             Dictionary with 1m, 5m, and 15m data or None if unavailable
         """
         try:
+            import MetaTrader5 as mt5
+            from datetime import datetime, timedelta
+            
             # Use existing historical data as 1m data
             if not historical_data or len(historical_data) < 50:
                 self.logger.warning(f"[MTF_VALIDATOR] Insufficient 1m data for {symbol}")
                 return None
             
-            # Use 1m data directly and create proper 5m/15m timeframes
             df_1m = pd.DataFrame(historical_data[-100:])  # Last 100 bars for 1m
             
-            # Create proper 5m data by resampling 1m data (every 5th bar)
-            df_5m = df_1m.iloc[::5].copy()
-            df_5m = df_5m.reset_index(drop=True)
+            # 🚨 CRITICAL FIX: Get REAL higher timeframe data from MT5
+            current_time = datetime.now()
             
-            # Create proper 15m data by resampling 1m data (every 15th bar)
-            df_15m = df_1m.iloc[::15].copy()
-            df_15m = df_15m.reset_index(drop=True)
+            # Track if we're using real MT5 data
+            using_real_data = False
+            
+            # Check if MT5 is initialized
+            if not mt5.initialize():
+                self.logger.warning(f"[MTF_VALIDATOR] MT5 not initialized, using resampled data for {symbol}")
+                df_5m = df_1m.iloc[::5].copy()
+                df_15m = df_1m.iloc[::15].copy()
+            else:
+                # Get real 5m data from MT5
+                try:
+                    rates_5m = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, 50)
+                    if rates_5m is not None and len(rates_5m) > 0:
+                        df_5m = pd.DataFrame(rates_5m)
+                        df_5m['time'] = pd.to_datetime(df_5m['time'], unit='s')
+                        self.logger.info(f"[MTF_VALIDATOR] Got REAL 5m data for {symbol}: {len(df_5m)} bars")
+                        using_real_data = True
+                    else:
+                        self.logger.warning(f"[MTF_VALIDATOR] No 5m data from MT5 for {symbol}, using resampled")
+                        df_5m = df_1m.iloc[::5].copy()
+                except Exception as e:
+                    self.logger.warning(f"[MTF_VALIDATOR] Error getting 5m data for {symbol}: {e}, using resampled")
+                    df_5m = df_1m.iloc[::5].copy()
+                
+                # Get real 15m data from MT5
+                try:
+                    rates_15m = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M15, 0, 50)
+                    if rates_15m is not None and len(rates_15m) > 0:
+                        df_15m = pd.DataFrame(rates_15m)
+                        df_15m['time'] = pd.to_datetime(df_15m['time'], unit='s')
+                        self.logger.info(f"[MTF_VALIDATOR] Got REAL 15m data for {symbol}: {len(df_15m)} bars")
+                        using_real_data = True
+                    else:
+                        self.logger.warning(f"[MTF_VALIDATOR] No 15m data from MT5 for {symbol}, using resampled")
+                        df_15m = df_1m.iloc[::15].copy()
+                except Exception as e:
+                    self.logger.warning(f"[MTF_VALIDATOR] Error getting 15m data for {symbol}: {e}, using resampled")
+                    df_15m = df_1m.iloc[::15].copy()
+            
+            # Set flag for logging
+            self._using_real_mtf_data = using_real_data
             
             return {
                 '1m': df_1m,
@@ -374,12 +413,15 @@ class MultiTimeframeValidator:
         # Determine signal direction
         signal_direction = 'bullish' if signal > 0 else 'bearish'
         
-        # Enhanced HTF vs LTF logging
+        # Enhanced HTF vs LTF logging with data source info
         ltf_signal = f"1m={signal_direction.upper()}"
         htf_5m = f"5m={tf_5m.upper()}" if tf_5m != 'neutral' else "5m=NEUTRAL"
         htf_15m = f"15m={tf_15m.upper()}" if tf_15m != 'neutral' else "15m=NEUTRAL"
         
-        self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | LTF: {ltf_signal} | HTF: {htf_5m}, {htf_15m}")
+        # Check if we're using real MT5 data or resampled data
+        data_source = "REAL_MT5" if hasattr(self, '_using_real_mtf_data') and self._using_real_mtf_data else "RESAMPLED"
+        
+        self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | LTF: {ltf_signal} | HTF: {htf_5m}, {htf_15m} | Data: {data_source}")
         self.logger.info(f"[MTF_DEBUG] Symbol: {tf_analysis.get('symbol', 'UNKNOWN')} | 1m: {signal_1m}({confidence_1m:.3f}), 5m: {signal_5m}({confidence_5m:.3f}), 15m: {signal_15m}({confidence_15m:.3f}), Final Action: {signal_direction}")
         
         # PULLBACK DETECTION LOGIC
