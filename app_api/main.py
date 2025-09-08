@@ -5,7 +5,7 @@ Provides REST API endpoints for the trading bot web dashboard.
 Focuses on P&L analytics and algo health monitoring.
 """
 
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from typing import Dict, List, Optional, Any
@@ -699,6 +699,85 @@ async def get_algo_health_legacy():
             "avg_trade_confidence": 0.0,
             "risk_exposure_percent": 0.0
         }
+
+# ===================
+# ==== WebSocket ====
+# ===================
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for live trading data updates"""
+    await websocket.accept()
+    logger.info("WebSocket client connected")
+    
+    try:
+        while True:
+            # Get live data from existing endpoints
+            try:
+                # Get live trades
+                trades_data = await get_open_trades()
+                trades = trades_data.get("trades", []) if isinstance(trades_data, dict) else []
+                
+                # Get P&L data
+                pnl_data = await get_trades_stats()
+                pnl = {
+                    "total_trades": pnl_data.get("total_trades", 0),
+                    "win_rate": pnl_data.get("win_rate", 0),
+                    "profit_factor": pnl_data.get("profit_factor", 0),
+                    "net_profit": pnl_data.get("net_profit", 0),
+                    "total_pnl": pnl_data.get("total_pnl", 0),
+                    "max_drawdown": pnl_data.get("max_drawdown", 0)
+                }
+                
+                # Get health data
+                health_data = await get_algo_health()
+                health = {
+                    "health_score": health_data.get("health_score", 0),
+                    "status": health_data.get("status", "unknown"),
+                    "uptime_hours": health_data.get("uptime_hours", 0),
+                    "last_signal_time": health_data.get("last_signal_time"),
+                    "restart_count": health_data.get("restart_count", 0),
+                    "error_count": health_data.get("error_count", 0)
+                }
+                
+                # Get account data
+                account_data = await get_risk_summary()
+                account = {
+                    "account_balance": account_data.get("account_balance", 0),
+                    "account_equity": account_data.get("account_equity", 0),
+                    "current_risk_percent": account_data.get("current_risk_percent", 0),
+                    "max_risk_percent": account_data.get("max_risk_percent", 0),
+                    "open_positions": account_data.get("open_positions", 0)
+                }
+                
+                # Prepare live data
+                live_data = {
+                    "timestamp": datetime.now().isoformat(),
+                    "trades": trades,
+                    "pnl": pnl,
+                    "health": health,
+                    "account": account,
+                    "system_status": system_status
+                }
+                
+                # Send data to client
+                await websocket.send_json(live_data)
+                
+            except Exception as e:
+                logger.error(f"Error preparing WebSocket data: {e}")
+                # Send error message
+                await websocket.send_json({
+                    "error": str(e),
+                    "timestamp": datetime.now().isoformat()
+                })
+            
+            # Wait 1 second before next update
+            await asyncio.sleep(1)
+            
+    except Exception as e:
+        logger.error(f"WebSocket connection error: {e}")
+    finally:
+        logger.info("WebSocket client disconnected")
 
 if __name__ == "__main__":
     import uvicorn

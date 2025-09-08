@@ -51,6 +51,7 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(new Date());
+  const [wsConnected, setWsConnected] = useState(false);
 
   const fetchData = async (showToast = false) => {
     try {
@@ -143,6 +144,92 @@ const Dashboard = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // WebSocket connection for live updates
+  useEffect(() => {
+    const wsUrl = API_ENDPOINTS.WEBSOCKET;
+    const ws = new WebSocket(wsUrl);
+    
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+      setWsConnected(true);
+      toast.success('Live updates connected', { duration: 2000 });
+    };
+    
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        if (data.error) {
+          console.error('WebSocket error:', data.error);
+          toast.error(`Live update error: ${data.error}`, { duration: 3000 });
+          return;
+        }
+        
+        // Update state with live data
+        if (data.pnl) {
+          setMetrics(prev => ({
+            ...prev,
+            total_trades: data.pnl.total_trades || prev.total_trades,
+            win_rate: data.pnl.win_rate || prev.win_rate,
+            profit_factor: data.pnl.profit_factor || prev.profit_factor,
+            net_profit: data.pnl.net_profit || prev.net_profit,
+            total_pnl: data.pnl.total_pnl || prev.total_pnl,
+            max_drawdown: data.pnl.max_drawdown || prev.max_drawdown
+          }));
+        }
+        
+        if (data.health) {
+          setAlgoHealth(prev => ({
+            ...prev,
+            health_score: data.health.health_score || prev.health_score,
+            status: data.health.status || prev.status,
+            uptime_hours: data.health.uptime_hours || prev.uptime_hours,
+            last_signal_time: data.health.last_signal_time || prev.last_signal_time,
+            restart_count: data.health.restart_count || prev.restart_count,
+            error_count: data.health.error_count || prev.error_count
+          }));
+        }
+        
+        if (data.account) {
+          setAccountData(prev => ({
+            ...prev,
+            account_balance: data.account.account_balance || prev.account_balance,
+            account_equity: data.account.account_equity || prev.account_equity,
+            margin_level: data.account.margin_level || prev.margin_level,
+            free_margin: data.account.free_margin || prev.free_margin,
+            used_margin: data.account.used_margin || prev.used_margin
+          }));
+        }
+        
+        if (data.trades) {
+          setLiveTrades(data.trades);
+        }
+        
+        // Update last update time
+        setLastUpdate(new Date());
+        
+      } catch (error) {
+        console.error('Error parsing WebSocket data:', error);
+      }
+    };
+    
+    ws.onclose = () => {
+      console.log('WebSocket disconnected');
+      setWsConnected(false);
+      toast.error('Live updates disconnected', { duration: 3000 });
+    };
+    
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      setWsConnected(false);
+      toast.error('WebSocket connection error', { duration: 3000 });
+    };
+    
+    return () => {
+      ws.close();
+    };
+  }, []);
+
   const formatLastUpdate = (date) => {
     const now = new Date();
     const diffMs = now - date;
@@ -167,6 +254,14 @@ const Dashboard = () => {
           <div className="text-sm text-text-muted bg-dark-800/50 px-3 py-2 rounded-lg border border-dark-600 flex items-center gap-2">
             <ClockIcon className="h-4 w-4" />
             Last updated: {formatLastUpdate(lastUpdate)}
+          </div>
+          <div className={`text-sm px-3 py-2 rounded-lg border flex items-center gap-2 ${
+            wsConnected 
+              ? 'text-green-400 bg-green-900/20 border-green-600' 
+              : 'text-red-400 bg-red-900/20 border-red-600'
+          }`}>
+            <div className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
+            {wsConnected ? 'Live Updates' : 'Offline'}
           </div>
           <button
             onClick={() => fetchData(true)}
