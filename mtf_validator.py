@@ -162,13 +162,13 @@ class MultiTimeframeValidator:
                 df_5m = df_1m.iloc[::5].copy()
                 df_15m = df_1m.iloc[::15].copy()
             else:
-                # Get real 5m data from MT5
+                # Get real 5m data from MT5 - Look back 1000 bars for proper trend analysis
                 try:
-                    rates_5m = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, 50)
+                    rates_5m = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, 1000)
                     if rates_5m is not None and len(rates_5m) > 0:
                         df_5m = pd.DataFrame(rates_5m)
                         df_5m['time'] = pd.to_datetime(df_5m['time'], unit='s')
-                        self.logger.info(f"[MTF_VALIDATOR] Got REAL 5m data for {symbol}: {len(df_5m)} bars")
+                        self.logger.info(f"[MTF_VALIDATOR] Got REAL 5m data for {symbol}: {len(df_5m)} bars (1000 requested)")
                         using_real_data = True
                     else:
                         self.logger.warning(f"[MTF_VALIDATOR] No 5m data from MT5 for {symbol}, using resampled")
@@ -177,13 +177,13 @@ class MultiTimeframeValidator:
                     self.logger.warning(f"[MTF_VALIDATOR] Error getting 5m data for {symbol}: {e}, using resampled")
                     df_5m = df_1m.iloc[::5].copy()
                 
-                # Get real 15m data from MT5
+                # Get real 15m data from MT5 - Look back 1000 bars for proper trend analysis
                 try:
-                    rates_15m = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M15, 0, 50)
+                    rates_15m = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M15, 0, 1000)
                     if rates_15m is not None and len(rates_15m) > 0:
                         df_15m = pd.DataFrame(rates_15m)
                         df_15m['time'] = pd.to_datetime(df_15m['time'], unit='s')
-                        self.logger.info(f"[MTF_VALIDATOR] Got REAL 15m data for {symbol}: {len(df_15m)} bars")
+                        self.logger.info(f"[MTF_VALIDATOR] Got REAL 15m data for {symbol}: {len(df_15m)} bars (1000 requested)")
                         using_real_data = True
                     else:
                         self.logger.warning(f"[MTF_VALIDATOR] No 15m data from MT5 for {symbol}, using resampled")
