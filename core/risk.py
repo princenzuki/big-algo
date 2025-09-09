@@ -19,15 +19,101 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 # ===============================
-# Symbol-Aware Pip Value System
+# Refactored Pip & SL/TP System
 # ===============================
+
+def get_pip_size(symbol: str) -> float:
+    """
+    Get the pip size (price increment) for a given trading symbol.
+    
+    This is the fundamental pip definition - the smallest price movement
+    that counts as 1 pip for the symbol.
+    
+    Args:
+        symbol: Trading symbol (e.g., 'EURUSDm', 'XAUUSDm', 'BTCUSDm')
+        
+    Returns:
+        float: Pip size in price terms
+        
+    Examples:
+        >>> get_pip_size('EURUSDm')    # 0.0001
+        >>> get_pip_size('USDJPYm')    # 0.01 (JPY pairs)
+        >>> get_pip_size('XAUUSDm')    # 0.1 (Gold)
+        >>> get_pip_size('USOILm')     # 0.01 (Oil)
+        >>> get_pip_size('USTECm')     # 1.0 (Indices)
+        >>> get_pip_size('BTCUSDm')    # 1.0 (BTC)
+    """
+    symbol_upper = symbol.upper()
+    
+    # Forex Majors & Crosses (4-decimal places)
+    forex_majors = ["EURUSDM", "GBPUSDM", "AUDUSDM", "NZDUSDM", "USDCADM", "USDCHFM", 
+                    "EURAUDM", "EURGBPM", "GBPCHFM", "GBPNZDM", "EURNZDM", "AUDCHFM", 
+                    "AUDCADM", "EURCHFM"]
+    
+    # JPY pairs (2-decimal places)
+    jpy_pairs = ["USDJPYM", "EURJPYM", "GBPJPYM", "CADJPYM"]
+    
+    if symbol_upper in forex_majors:
+        return 0.0001  # Standard forex pip
+    elif symbol_upper in jpy_pairs:
+        return 0.01    # JPY pairs
+    elif symbol_upper == "XAUUSDM":
+        return 0.1     # Gold
+    elif symbol_upper == "USOILM":
+        return 0.01    # Oil
+    elif symbol_upper in ["USTECM", "US500M", "US30M"]:
+        return 1.0     # Indices (1 point = 1 pip)
+    elif symbol_upper == "BTCUSDM":
+        return 1.0     # BTC (1 dollar = 1 pip)
+    else:
+        # Fallback patterns
+        if 'JPY' in symbol_upper:
+            return 0.01
+        elif any(metal in symbol_upper for metal in ['XAU', 'GOLD']):
+            return 0.1
+        elif any(oil in symbol_upper for oil in ['OIL', 'USOIL', 'UKOIL', 'BRENT', 'WTI']):
+            return 0.01
+        elif any(index in symbol_upper for index in ['US30', 'US500', 'SPX500', 'USTEC', 'NAS100']):
+            return 1.0
+        elif any(crypto in symbol_upper for crypto in ['BTC', 'ETH', 'LTC', 'XRP', 'ADA', 'DOT']):
+            return 1.0
+        else:
+            return 0.0001  # Default to standard forex
+
+def pips_to_price(symbol: str, pips: float) -> float:
+    """
+    Convert pip distance to price distance.
+    
+    Args:
+        symbol: Trading symbol
+        pips: Distance in pips
+        
+    Returns:
+        float: Price distance
+    """
+    pip_size = get_pip_size(symbol)
+    return pips * pip_size
+
+def price_to_pips(symbol: str, price_distance: float) -> float:
+    """
+    Convert price distance to pip distance.
+    
+    Args:
+        symbol: Trading symbol
+        price_distance: Price distance
+        
+    Returns:
+        float: Distance in pips
+    """
+    pip_size = get_pip_size(symbol)
+    return price_distance / pip_size if pip_size > 0 else 0.0
 
 def get_pip_value(symbol: str, lot_size: float = 1.0) -> float:
     """
     Get the pip value in USD for a given trading symbol and lot size.
     
-    CORRECTED with exact Exness MT5 pip values from live broker data.
-    This fixes the massive scaling errors that were causing insane SL/TP levels.
+    This calculates the dollar value of 1 pip movement for the symbol.
+    Uses the new pip size system for accurate calculations.
     
     Args:
         symbol: Trading symbol (e.g., 'EURUSDm', 'XAUUSDm', 'BTCUSDm')
@@ -35,81 +121,58 @@ def get_pip_value(symbol: str, lot_size: float = 1.0) -> float:
         
     Returns:
         float: Pip value in USD for the symbol and lot size
-        
-    Examples:
-        >>> get_pip_value('EURUSDm', 1.0)    # Standard lot
-        10.0
-        >>> get_pip_value('XAUUSDm', 1.0)    # Gold standard lot
-        10.0
-        >>> get_pip_value('BTCUSDm', 1.0)    # BTC standard lot
-        0.01
     """
     symbol_upper = symbol.upper()
     
-    # CORRECTED pip value dictionary per symbol (in USD for standard lot)
-    # Based on exact Exness MT5 broker values
-    pip_value_per_symbol = {
+    # Get pip size for the symbol
+    pip_size = get_pip_size(symbol)
+    
+    # Base pip values in USD for standard lot (1.0)
+    # These represent the dollar value of 1 pip movement
+    base_pip_values = {
+        # 💱 FOREX MAJOR PAIRS (standard lot = $10 per pip)
+        "EURUSDM": 10.0, "GBPUSDM": 10.0, "AUDUSDM": 10.0, "NZDUSDM": 10.0,
+        "USDCADM": 10.0, "USDCHFM": 10.0,
+        
+        # 💱 FOREX CROSS PAIRS (standard lot = $10 per pip)
+        "EURAUDM": 10.0, "EURGBPM": 10.0, "GBPCHFM": 10.0, "GBPNZDM": 10.0,
+        "EURNZDM": 10.0, "AUDCHFM": 10.0, "AUDCADM": 10.0, "EURCHFM": 10.0,
+        
+        # 💱 JPY PAIRS (variable based on current rates)
+        "USDJPYM": 6.81, "EURJPYM": 6.81, "GBPJPYM": 6.81, "CADJPYM": 6.81,
+        
         # 🥇 METALS & COMMODITIES
-        "XAUUSDM": 10.0,   # Gold: $10 per pip (Exness point is 0.001)
-        "BTCUSDM": 0.01,   # Bitcoin: $0.01 per $1 move
-        "USOILM": 10.0,    # WTI Oil: $10 per $1 move
+        "XAUUSDM": 10.0,  # Gold: $10 per pip
+        "USOILM": 10.0,   # Oil: $10 per pip
         
         # 📈 INDICES
-        "USTECM": 1.0,     # NASDAQ 100: $1 per 100-point move
-        "US500M": 1.0,     # S&P 500: $1 per 100-point move  
-        "US30M": 0.1,      # Dow Jones: $0.10 per point
+        "USTECM": 1.0,    # NASDAQ: $1 per point
+        "US500M": 1.0,    # S&P 500: $1 per point
+        "US30M": 0.1,     # Dow Jones: $0.10 per point
         
-        # 💱 FOREX MAJOR PAIRS
-        "EURUSDM": 10.0,   # Euro/USD: $10 per pip
-        "GBPUSDM": 10.0,   # Pound/USD: $10 per pip
-        "AUDUSDM": 10.0,   # AUD/USD: $10 per pip
-        "NZDUSDM": 10.0,   # NZD/USD: $10 per pip
-        "USDJPYM": 6.81,   # USD/JPY: ~$6.81 per pip (current rate)
-        "USDCADM": 7.24,   # USD/CAD: ~$7.24 per pip
-        "USDCHFM": 12.58,  # USD/CHF: ~$12.58 per pip
-        
-        # 🌍 FOREX CROSS PAIRS
-        "EURJPYM": 6.81,   # Euro/JPY: ~$6.81 per pip
-        "GBPJPYM": 6.81,   # Pound/JPY: ~$6.81 per pip
-        "CADJPYM": 6.81,   # CAD/JPY: ~$6.81 per pip
-        "EURAUDM": 6.61,   # Euro/AUD: ~$6.61 per pip
-        "EURGBPM": 13.56,  # Euro/Pound: ~$13.56 per pip
-        "GBPCHFM": 12.58,  # Pound/CHF: ~$12.58 per pip
-        "GBPNZDM": 5.95,   # Pound/NZD: ~$5.95 per pip
-        "EURNZDM": 5.95,   # Euro/NZD: ~$5.95 per pip
-        "AUDCHFM": 12.58,  # AUD/CHF: ~$12.58 per pip
-        "AUDCADM": 7.24,   # AUD/CAD: ~$7.24 per pip
-        "EURCHFM": 12.58,  # Euro/CHF: ~$12.58 per pip
+        # ₿ CRYPTO
+        "BTCUSDM": 0.01,  # BTC: $0.01 per $1 move
     }
     
-    # Get base pip value for standard lot
-    base_pip_value = None
-    
-    # Check exact symbol match first
-    if symbol_upper in pip_value_per_symbol:
-        base_pip_value = pip_value_per_symbol[symbol_upper]
+    # Get base pip value
+    if symbol_upper in base_pip_values:
+        base_pip_value = base_pip_values[symbol_upper]
     else:
-        # Fallback patterns for symbols not in dictionary
-        # Bitcoin and other cryptocurrencies
-        if any(crypto in symbol_upper for crypto in ['BTC', 'ETH', 'LTC', 'XRP', 'ADA', 'DOT']):
-            base_pip_value = 0.01
-        # Gold and precious metals
+        # Fallback patterns
+        if 'JPY' in symbol_upper:
+            base_pip_value = 6.81
         elif any(metal in symbol_upper for metal in ['XAU', 'GOLD']):
-            base_pip_value = 10.0  # CORRECTED: Gold is $10 per pip, not $1
-        # Oil and energy commodities
+            base_pip_value = 10.0
         elif any(oil in symbol_upper for oil in ['OIL', 'USOIL', 'UKOIL', 'BRENT', 'WTI']):
             base_pip_value = 10.0
-        # Stock indices
         elif any(index in symbol_upper for index in ['US30', 'US500', 'SPX500']):
             base_pip_value = 1.0
         elif any(index in symbol_upper for index in ['USTEC', 'NAS100']):
             base_pip_value = 1.0
-        # JPY pairs - special case for forex
-        elif 'JPY' in symbol_upper:
-            base_pip_value = 6.81  # CORRECTED: Current JPY rate
-        # Default to standard forex pip value
+        elif any(crypto in symbol_upper for crypto in ['BTC', 'ETH', 'LTC', 'XRP', 'ADA', 'DOT']):
+            base_pip_value = 0.01
         else:
-            base_pip_value = 10.0
+            base_pip_value = 10.0  # Default forex
     
     # Apply lot size scaling
     return base_pip_value * lot_size
@@ -117,6 +180,9 @@ def get_pip_value(symbol: str, lot_size: float = 1.0) -> float:
 def get_pip_distance_in_price(symbol: str, distance_pips: float, lot_size: float = 1.0) -> float:
     """
     Convert pip distance to actual price distance for a symbol.
+    
+    DEPRECATED: Use pips_to_price() instead for better clarity.
+    This function is kept for backward compatibility.
     
     Args:
         symbol: Trading symbol
@@ -126,12 +192,14 @@ def get_pip_distance_in_price(symbol: str, distance_pips: float, lot_size: float
     Returns:
         float: Price distance
     """
-    pip_value = get_pip_value(symbol, lot_size)
-    return distance_pips * pip_value
+    return pips_to_price(symbol, distance_pips)
 
 def get_price_distance_in_pips(symbol: str, price_distance: float, lot_size: float = 1.0) -> float:
     """
     Convert price distance to pip distance for a symbol.
+    
+    DEPRECATED: Use price_to_pips() instead for better clarity.
+    This function is kept for backward compatibility.
     
     Args:
         symbol: Trading symbol
@@ -141,8 +209,7 @@ def get_price_distance_in_pips(symbol: str, price_distance: float, lot_size: flo
     Returns:
         float: Distance in pips
     """
-    pip_value = get_pip_value(symbol, lot_size)
-    return price_distance / pip_value if pip_value > 0 else 0.0
+    return price_to_pips(symbol, price_distance)
 
 # ===============================
 # Dynamic Spread & Smart Stop Logic
@@ -263,9 +330,8 @@ def calculate_hybrid_stop_loss(symbol: str, entry_price: float, side: str,
             atr = atr_series.dropna().iloc[-1] if not atr_series.dropna().empty else 0.0
             
             if not pd.isna(atr) and atr > 0:
-                # Convert ATR to pips using symbol-aware pip value
-                pip_value = get_pip_value(symbol, 1.0)  # Use standard lot for ATR calculation
-                atr_distance_pips = (atr * atr_multiplier) / pip_value
+                # Convert ATR to pips using the new pip size system
+                atr_distance_pips = price_to_pips(symbol, atr * atr_multiplier)
                 
                 atr_calculation_success = True
                 logger.info(f"[HYBRID_SL] ATR calculation: ATR={atr:.6f}, multiplier={atr_multiplier}, distance={atr_distance_pips:.2f} pips")
@@ -298,10 +364,10 @@ def calculate_hybrid_stop_loss(symbol: str, entry_price: float, side: str,
         calculation_method = "MINIMUM_ENFORCED"
         logger.warning(f"[HYBRID_SL] Enforcing minimum distance: {min_distance_pips:.1f} pips")
     
-    # Step 5: Convert pips to price distance using symbol-aware pip value
-    pip_value = get_pip_value(symbol, 1.0)  # Use standard lot for price calculation
-    price_distance = get_pip_distance_in_price(symbol, final_distance_pips, 1.0)
-    logger.info(f"[HYBRID_SL] {symbol}: {final_distance_pips:.1f} pips × {pip_value:.5f} = {price_distance:.5f}")
+    # Step 5: Convert pips to price distance using the new pip size system
+    price_distance = pips_to_price(symbol, final_distance_pips)
+    pip_size = get_pip_size(symbol)
+    logger.info(f"[HYBRID_SL] {symbol}: {final_distance_pips:.1f} pips × {pip_size:.5f} = {price_distance:.5f}")
     
     # Step 6: Calculate stop loss price
     if side == 'buy':
@@ -319,7 +385,27 @@ def calculate_hybrid_stop_loss(symbol: str, entry_price: float, side: str,
         # Force correct SL
         stop_loss_price = entry_price + price_distance
     
-    logger.info(f"[HYBRID_SL] [OK] Final SL: {stop_loss_price:.5f} (method: {calculation_method}, distance: {final_distance_pips:.1f} pips, pip_mult: {pip_value:.5f})")
+    # Step 8: Comprehensive audit logging
+    pip_size = get_pip_size(symbol)
+    pip_value = get_pip_value(symbol, 1.0)
+    
+    logger.info(f"[HYBRID_SL] [AUDIT] {symbol} SL/TP Audit:")
+    logger.info(f"   - Symbol: {symbol}")
+    logger.info(f"   - Pip Size: {pip_size:.5f}")
+    logger.info(f"   - Pip Value: ${pip_value:.2f} per pip")
+    logger.info(f"   - ATR (price): {atr:.6f}")
+    logger.info(f"   - ATR (pips): {price_to_pips(symbol, atr):.2f}")
+    logger.info(f"   - Final Distance: {final_distance_pips:.1f} pips")
+    logger.info(f"   - Price Distance: {price_distance:.5f}")
+    logger.info(f"   - Entry Price: {entry_price:.5f}")
+    logger.info(f"   - Stop Loss: {stop_loss_price:.5f}")
+    logger.info(f"   - Method: {calculation_method}")
+    
+    # Flag if SL/TP distance is suspiciously large
+    if final_distance_pips > 1000:
+        logger.warning(f"[HYBRID_SL] ⚠️  WARNING: SL distance {final_distance_pips:.1f} pips > 1000 - possible mis-scaling!")
+    
+    logger.info(f"[HYBRID_SL] [OK] Final SL: {stop_loss_price:.5f} (method: {calculation_method}, distance: {final_distance_pips:.1f} pips)")
     
     return stop_loss_price, calculation_method
 

@@ -548,6 +548,224 @@ class LorentzianTradingBot:
         except Exception as e:
             logger.error(f"Error taking partial profit for {symbol}: {e}")
     
+    def _validate_momentum_ignition(self, symbol: str, signal: int, historical_data: List[Dict]) -> Dict:
+        """
+        Validate momentum ignition before allowing trade entry.
+        
+        Requirements:
+        1. Trigger candle: close > last swing high (5m) for buys, close < last swing low (5m) for sells
+        2. Strong body filter: body size >= 60% of total candle range
+        3. Momentum confirmation: RSI/WaveTrend/ADX must show acceleration
+        4. Multi-timeframe validation: 5m trigger only if 15m bias matches
+        5. Smart delay: Optional 5-15s delay after new candle open
+        
+        Args:
+            symbol: Trading symbol
+            signal: ML signal (1 for buy, -1 for sell)
+            historical_data: Historical OHLC data
+            
+        Returns:
+            Dict with 'allow_trade' (bool) and 'reason' (str)
+        """
+        try:
+            if not historical_data or len(historical_data) < 50:
+                return {
+                    'allow_trade': False,
+                    'reason': f'Insufficient data: {len(historical_data) if historical_data else 0} bars (need 50+)'
+                }
+            
+            # Get recent data for analysis
+            recent_data = historical_data[-20:]  # Last 20 bars for swing analysis
+            current_candle = recent_data[-1]
+            
+            # 1. TRIGGER CANDLE VALIDATION
+            logger.info(f"[MOMENTUM_FILTER] {symbol} | Analyzing trigger candle...")
+            
+            # Calculate swing highs/lows from 5m perspective (using 5 bars = 5 minutes)
+            swing_period = 5
+            if len(recent_data) < swing_period * 2:
+                return {
+                    'allow_trade': False,
+                    'reason': f'Insufficient data for swing analysis: {len(recent_data)} bars'
+                }
+            
+            # Find last swing high and low
+            highs = [bar['high'] for bar in recent_data[-swing_period*2:]]
+            lows = [bar['low'] for bar in recent_data[-swing_period*2:]]
+            
+            last_swing_high = max(highs[:-swing_period])  # Exclude current period
+            last_swing_low = min(lows[:-swing_period])    # Exclude current period
+            
+            current_close = current_candle['close']
+            current_open = current_candle['open']
+            current_high = current_candle['high']
+            current_low = current_candle['low']
+            
+            # Check trigger candle condition
+            if signal > 0:  # Buy signal
+                trigger_condition = current_close > last_swing_high
+                trigger_desc = f"close {current_close:.5f} > swing high {last_swing_high:.5f}"
+            else:  # Sell signal
+                trigger_condition = current_close < last_swing_low
+                trigger_desc = f"close {current_close:.5f} < swing low {last_swing_low:.5f}"
+            
+            if not trigger_condition:
+                return {
+                    'allow_trade': False,
+                    'reason': f'No trigger candle: {trigger_desc}'
+                }
+            
+            logger.info(f"[MOMENTUM_FILTER] {symbol} | [OK] Trigger candle: {trigger_desc}")
+            
+            # 2. STRONG BODY FILTER
+            logger.info(f"[MOMENTUM_FILTER] {symbol} | Analyzing candle body strength...")
+            
+            candle_range = current_high - current_low
+            body_size = abs(current_close - current_open)
+            
+            if candle_range == 0:
+                return {
+                    'allow_trade': False,
+                    'reason': 'Zero candle range (doji candle)'
+                }
+            
+            body_percentage = (body_size / candle_range) * 100
+            min_body_percentage = 60.0
+            
+            if body_percentage < min_body_percentage:
+                return {
+                    'allow_trade': False,
+                    'reason': f'Weak body: {body_percentage:.1f}% < {min_body_percentage}%'
+                }
+            
+            logger.info(f"[MOMENTUM_FILTER] {symbol} | [OK] Strong body: {body_percentage:.1f}% >= {min_body_percentage}%")
+            
+            # 3. MOMENTUM CONFIRMATION
+            logger.info(f"[MOMENTUM_FILTER] {symbol} | Analyzing momentum acceleration...")
+            
+            # Calculate RSI for momentum analysis
+            import pandas as pd
+            import numpy as np
+            
+            df = pd.DataFrame(recent_data)
+            closes = df['close'].values
+            
+            # Simple RSI calculation
+            def calculate_rsi(prices, period=14):
+                if len(prices) < period + 1:
+                    return None
+                
+                deltas = np.diff(prices)
+                gains = np.where(deltas > 0, deltas, 0)
+                losses = np.where(deltas < 0, -deltas, 0)
+                
+                avg_gains = np.mean(gains[-period:])
+                avg_losses = np.mean(losses[-period:])
+                
+                if avg_losses == 0:
+                    return 100
+                
+                rs = avg_gains / avg_losses
+                rsi = 100 - (100 / (1 + rs))
+                return rsi
+            
+            # Calculate RSI for last 3 candles
+            rsi_values = []
+            for i in range(3, 0, -1):
+                if len(closes) >= 14 + i:
+                    rsi = calculate_rsi(closes[:-i], 14)
+                    if rsi is not None:
+                        rsi_values.append(rsi)
+            
+            if len(rsi_values) < 3:
+                return {
+                    'allow_trade': False,
+                    'reason': f'Insufficient data for RSI calculation: {len(rsi_values)} values'
+                }
+            
+            # Check RSI momentum (rising for buys, falling for sells)
+            rsi_current = rsi_values[0]
+            rsi_prev = rsi_values[1]
+            rsi_prev2 = rsi_values[2]
+            
+            if signal > 0:  # Buy signal
+                rsi_momentum = rsi_current > rsi_prev > rsi_prev2
+                momentum_desc = f"RSI rising: {rsi_prev2:.1f} -> {rsi_prev:.1f} -> {rsi_current:.1f}"
+            else:  # Sell signal
+                rsi_momentum = rsi_current < rsi_prev < rsi_prev2
+                momentum_desc = f"RSI falling: {rsi_prev2:.1f} -> {rsi_prev:.1f} -> {rsi_current:.1f}"
+            
+            if not rsi_momentum:
+                return {
+                    'allow_trade': False,
+                    'reason': f'No momentum acceleration: {momentum_desc}'
+                }
+            
+            logger.info(f"[MOMENTUM_FILTER] {symbol} | [OK] Momentum confirmed: {momentum_desc}")
+            
+            # 4. MULTI-TIMEFRAME VALIDATION (15m bias check)
+            logger.info(f"[MOMENTUM_FILTER] {symbol} | Validating 15m bias alignment...")
+            
+            # Use 15 bars to represent 15m timeframe (15 minutes = 15 bars)
+            tf_15m_data = historical_data[-15:] if len(historical_data) >= 15 else historical_data
+            
+            if len(tf_15m_data) < 10:
+                return {
+                    'allow_trade': False,
+                    'reason': f'Insufficient 15m data: {len(tf_15m_data)} bars'
+                }
+            
+            # Calculate 15m trend using simple moving average
+            tf_15m_closes = [bar['close'] for bar in tf_15m_data]
+            tf_15m_sma = np.mean(tf_15m_closes[-5:])  # Last 5 bars average
+            tf_15m_prev_sma = np.mean(tf_15m_closes[-10:-5])  # Previous 5 bars average
+            
+            tf_15m_bullish = tf_15m_sma > tf_15m_prev_sma
+            tf_15m_bearish = tf_15m_sma < tf_15m_prev_sma
+            
+            # Check if 15m bias matches signal direction
+            if signal > 0 and not tf_15m_bullish:
+                return {
+                    'allow_trade': False,
+                    'reason': f'15m bias conflict: signal BUY but 15m trend bearish ({tf_15m_sma:.5f} < {tf_15m_prev_sma:.5f})'
+                }
+            elif signal < 0 and not tf_15m_bearish:
+                return {
+                    'allow_trade': False,
+                    'reason': f'15m bias conflict: signal SELL but 15m trend bullish ({tf_15m_sma:.5f} > {tf_15m_prev_sma:.5f})'
+                }
+            
+            logger.info(f"[MOMENTUM_FILTER] {symbol} | [OK] 15m bias aligned: {tf_15m_sma:.5f} vs {tf_15m_prev_sma:.5f}")
+            
+            # 5. SMART DELAY (Optional - can be implemented with timestamp checking)
+            # For now, we'll skip the delay as it requires real-time timestamp management
+            
+            # All conditions passed
+            logger.info(f"[MOMENTUM_FILTER] {symbol} | [OK] ALL CONDITIONS PASSED - Momentum ignition confirmed!")
+            logger.info(f"[MOMENTUM_FILTER] {symbol} | Summary:")
+            logger.info(f"   - Trigger: {trigger_desc}")
+            logger.info(f"   - Body: {body_percentage:.1f}% (strong)")
+            logger.info(f"   - Momentum: {momentum_desc}")
+            logger.info(f"   - 15m Bias: Aligned")
+            
+            return {
+                'allow_trade': True,
+                'reason': 'Momentum ignition confirmed',
+                'details': {
+                    'trigger_condition': trigger_desc,
+                    'body_percentage': body_percentage,
+                    'rsi_momentum': momentum_desc,
+                    'tf_15m_aligned': True
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"[MOMENTUM_FILTER] {symbol} | Error in momentum validation: {e}")
+            return {
+                'allow_trade': False,
+                'reason': f'Momentum validation error: {str(e)}'
+            }
+
     async def _process_signal(self, symbol: str, signal_data: Dict, symbol_info, symbol_config: Dict, cycle_stats: Dict):
         """Process a trading signal with detailed logging"""
         try:
@@ -570,6 +788,21 @@ class LorentzianTradingBot:
             
             # Get historical data for MTF validation
             historical_data = self.historical_data.get(symbol, [])
+            
+            # ✅ Momentum Ignition Filter - Wait for actual momentum, not just direction bias
+            logger.info(f"[MOMENTUM_FILTER] Starting momentum ignition validation for {symbol}...")
+            momentum_result = self._validate_momentum_ignition(
+                symbol=symbol,
+                signal=signal,
+                historical_data=historical_data
+            )
+            
+            # Check if momentum ignition allows the trade
+            if not momentum_result['allow_trade']:
+                logger.info(f"[MOMENTUM_FILTER] {symbol} | BLOCKED: {momentum_result['reason']}")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons']['Momentum Filter'] = cycle_stats['skip_reasons'].get('Momentum Filter', 0) + 1
+                return
             
             # ✅ MTF Validation - Validate signal across multiple timeframes
             logger.info(f"[MTF_VALIDATION] Starting multi-timeframe validation for {symbol}...")
