@@ -199,7 +199,7 @@ class PortfolioManager:
         
         return trade
     
-    def close_trade(self, trade_id: str, exit_price: float, exit_reason: str) -> Optional[float]:
+    def close_trade(self, trade_id: str, exit_price: float, exit_reason: str, risk_manager=None) -> Optional[float]:
         """
         Close a trade
         
@@ -207,6 +207,7 @@ class PortfolioManager:
             trade_id: Trade identifier
             exit_price: Exit price
             exit_reason: Reason for closing
+            risk_manager: Optional risk manager to update global cooldown
             
         Returns:
             P&L amount or None if trade not found
@@ -216,6 +217,11 @@ class PortfolioManager:
             return None
         
         trade = self.trades[trade_id]
+        
+        # 🚀 CRITICAL FIX: Update global cooldown if risk manager is provided
+        if risk_manager is not None:
+            risk_manager._last_trade_close_time = datetime.now()
+            logger.info(f"[COOLDOWN] Global 10-minute cooldown started at {risk_manager._last_trade_close_time.strftime('%H:%M:%S')} (via portfolio close)")
         
         # Calculate P&L
         if trade.side == 'long':

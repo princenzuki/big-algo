@@ -775,7 +775,15 @@ class LorentzianTradingBot:
                 cycle_stats['skip_reasons']['Invalid lot size'] = cycle_stats['skip_reasons'].get('Invalid lot size', 0) + 1
                 return
             
-            # Check if we can open a position with the calculated risk amount
+            # 🚀 CRITICAL FIX: Check global cooldown FIRST (10 minutes after last trade close)
+            is_in_cooldown, cooldown_message = self.risk_manager.is_in_global_cooldown()
+            if is_in_cooldown:
+                logger.info(f"   [COOLDOWN] Trade blocked: {cooldown_message}")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons']['Global cooldown'] = cycle_stats['skip_reasons'].get('Global cooldown', 0) + 1
+                return
+            
+            # Check if we can open a position with the calculated risk amount (includes per-symbol cooldown)
             can_open, reason = self.risk_manager.can_open_position(symbol, symbol_info.spread, risk_amount, side)
             if not can_open:
                 logger.info(f"   [SKIP] {reason}")
@@ -813,14 +821,6 @@ class LorentzianTradingBot:
                 logger.info(f"   [SKIP] Lot size too small ({rounded_lot_size:.3f} < {symbol_info.lot_min:.3f})")
                 cycle_stats['trades_skipped'] += 1
                 cycle_stats['skip_reasons']['Lot size too small'] = cycle_stats['skip_reasons'].get('Lot size too small', 0) + 1
-                return
-            
-            # 🚀 NEW: Check global cooldown period (10 minutes after last trade close)
-            is_in_cooldown, cooldown_message = self.risk_manager.is_in_global_cooldown()
-            if is_in_cooldown:
-                logger.info(f"   [COOLDOWN] Trade blocked: {cooldown_message}")
-                cycle_stats['trades_skipped'] += 1
-                cycle_stats['skip_reasons']['Global cooldown'] = cycle_stats['skip_reasons'].get('Global cooldown', 0) + 1
                 return
             
             # Place order
@@ -914,7 +914,7 @@ class LorentzianTradingBot:
                     self.smart_tp.close_position(trade.symbol)
                     # Note: In a real implementation, we'd need to get the actual close price
                     # For now, we'll mark it as closed with a placeholder
-                    self.portfolio_manager.close_trade(trade.id, 0.0, "position_closed")
+                    self.portfolio_manager.close_trade(trade.id, 0.0, "position_closed", self.risk_manager)
             
         except Exception as e:
             logger.error(f"Error updating portfolio positions: {e}")

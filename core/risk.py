@@ -22,84 +22,120 @@ logger = logging.getLogger(__name__)
 # Symbol-Aware Pip Value System
 # ===============================
 
-def get_pip_value(symbol: str) -> float:
+def get_pip_value(symbol: str, lot_size: float = 1.0) -> float:
     """
-    Get the pip multiplier for a given trading symbol.
+    Get the pip value in USD for a given trading symbol and lot size.
     
-    This function returns the correct pip value based on the instrument type:
-    - 0.0001 for standard forex pairs (EURUSD, GBPUSD, etc.)
-    - 0.01 for JPY pairs (USDJPY, EURJPY, etc.)
-    - 0.01 for gold (XAUUSD) and oil (USOIL, UKOIL, etc.)
-    - 1.0 for Bitcoin and other cryptos (BTCUSD, BTCUSDm, etc.)
+    This function returns the correct pip value in USD based on the instrument type and lot size:
+    - Forex pairs: $10.00 per pip for standard lot, $1.00 for mini lot, $0.10 for micro lot
+    - JPY pairs: $9.13 per pip for standard lot, $0.913 for mini lot, $0.0913 for micro lot
+    - Commodities and indices: Variable based on lot size (standard/mini/micro)
     
     Args:
-        symbol: Trading symbol (e.g., 'EURUSD', 'XAUUSD', 'BTCUSDm')
+        symbol: Trading symbol (e.g., 'EURUSDm', 'XAUUSDm', 'BTCUSDm')
+        lot_size: Lot size (1.0 = standard, 0.1 = mini, 0.01 = micro)
         
     Returns:
-        float: Pip multiplier for the symbol
+        float: Pip value in USD for the symbol and lot size
         
     Examples:
-        >>> get_pip_value('EURUSD')
-        0.0001
-        >>> get_pip_value('USDJPY')
-        0.01
-        >>> get_pip_value('XAUUSD')
-        0.01
-        >>> get_pip_value('BTCUSDm')
+        >>> get_pip_value('EURUSDm', 1.0)    # Standard lot
+        10.0
+        >>> get_pip_value('EURUSDm', 0.1)    # Mini lot
         1.0
+        >>> get_pip_value('XAUUSDm', 1.0)    # Gold standard lot
+        1.0
+        >>> get_pip_value('XAUUSDm', 0.1)    # Gold mini lot
+        0.1
     """
     symbol_upper = symbol.upper()
     
-    # Bitcoin and other cryptocurrencies
-    if any(crypto in symbol_upper for crypto in ['BTC', 'ETH', 'LTC', 'XRP', 'ADA', 'DOT']):
-        return 1.0
+    # Pip value dictionary per symbol (in USD for standard lot)
+    pip_value_per_symbol = {
+        # Forex Major Pairs (per standard lot)
+        "EURUSDM": 10.0, "GBPUSDM": 10.0, "AUDUSDM": 10.0, "NZDUSDM": 10.0, 
+        "USDCADM": 10.0, "USDCHFM": 10.0, "EURGBPM": 10.0,
+        
+        # Forex JPY Pairs (per standard lot)
+        "USDJPYM": 9.13, "EURJPYM": 9.13, "GBPJPYM": 9.13, "CADJPYM": 9.13,
+        
+        # Forex Cross Pairs (per standard lot)
+        "EURAUDM": 10.0, "GBPCHFM": 10.0, "GBPNZDM": 10.0, "EURNZDM": 10.0,
+        "AUDCHFM": 10.0, "AUDCADM": 10.0, "EURCHFM": 10.0,
+        
+        # Commodities (per standard lot)
+        "XAUUSDM": 1.00,  # Gold: $1.00 per pip (0.01 pip size)
+        "USOILM": 10.00,  # WTI Crude: $10.00 per pip (0.01 pip size)
+        
+        # Indices (per standard lot)
+        "US30M": 1.00,    # Dow Jones: $1.00 per pip (1.0 pip size)
+        "US500M": 1.00,   # S&P 500: $1.00 per pip (0.10 pip size)
+        "USTECM": 1.00,   # Nasdaq 100: $1.00 per pip (0.10 pip size)
+        
+        # Crypto (per standard lot)
+        "BTCUSDM": 0.001,
+    }
     
-    # Gold and precious metals
-    if any(metal in symbol_upper for metal in ['XAU', 'GOLD']):
-        return 0.01
+    # Get base pip value for standard lot
+    base_pip_value = None
     
-    # Oil and energy commodities
-    if any(oil in symbol_upper for oil in ['OIL', 'USOIL', 'UKOIL', 'BRENT', 'WTI']):
-        return 0.01
+    # Check exact symbol match first
+    if symbol_upper in pip_value_per_symbol:
+        base_pip_value = pip_value_per_symbol[symbol_upper]
+    else:
+        # Fallback patterns for symbols not in dictionary
+        # Bitcoin and other cryptocurrencies
+        if any(crypto in symbol_upper for crypto in ['BTC', 'ETH', 'LTC', 'XRP', 'ADA', 'DOT']):
+            base_pip_value = 0.001
+        # Gold and precious metals
+        elif any(metal in symbol_upper for metal in ['XAU', 'GOLD']):
+            base_pip_value = 1.00
+        # Oil and energy commodities
+        elif any(oil in symbol_upper for oil in ['OIL', 'USOIL', 'UKOIL', 'BRENT', 'WTI']):
+            base_pip_value = 10.00
+        # Stock indices
+        elif any(index in symbol_upper for index in ['US30', 'US500', 'SPX500']):
+            base_pip_value = 1.00
+        elif any(index in symbol_upper for index in ['USTEC', 'NAS100']):
+            base_pip_value = 1.00
+        # JPY pairs - special case for forex
+        elif 'JPY' in symbol_upper:
+            base_pip_value = 9.13
+        # Default to standard forex pip value
+        else:
+            base_pip_value = 10.0
     
-    # Stock indices (if they use different pip values)
-    if any(index in symbol_upper for index in ['US30', 'US500', 'USTEC', 'NAS100', 'SPX500']):
-        return 0.01  # Most indices use 0.01
-    
-    # JPY pairs - special case for forex
-    if 'JPY' in symbol_upper:
-        return 0.01
-    
-    # Default to standard forex pip value (0.0001)
-    # This covers EURUSD, GBPUSD, AUDUSD, USDCAD, etc.
-    return 0.0001
+    # Apply lot size scaling
+    return base_pip_value * lot_size
 
-def get_pip_distance_in_price(symbol: str, distance_pips: float) -> float:
+def get_pip_distance_in_price(symbol: str, distance_pips: float, lot_size: float = 1.0) -> float:
     """
     Convert pip distance to actual price distance for a symbol.
     
     Args:
         symbol: Trading symbol
         distance_pips: Distance in pips
+        lot_size: Lot size (1.0 = standard, 0.1 = mini, 0.01 = micro)
         
     Returns:
         float: Price distance
     """
-    pip_value = get_pip_value(symbol)
+    pip_value = get_pip_value(symbol, lot_size)
     return distance_pips * pip_value
 
-def get_price_distance_in_pips(symbol: str, price_distance: float) -> float:
+def get_price_distance_in_pips(symbol: str, price_distance: float, lot_size: float = 1.0) -> float:
     """
     Convert price distance to pip distance for a symbol.
     
     Args:
         symbol: Trading symbol
         price_distance: Price distance
+        lot_size: Lot size (1.0 = standard, 0.1 = mini, 0.01 = micro)
         
     Returns:
         float: Distance in pips
     """
-    pip_value = get_pip_value(symbol)
+    pip_value = get_pip_value(symbol, lot_size)
     return price_distance / pip_value if pip_value > 0 else 0.0
 
 # ===============================
@@ -222,7 +258,7 @@ def calculate_hybrid_stop_loss(symbol: str, entry_price: float, side: str,
             
             if not pd.isna(atr) and atr > 0:
                 # Convert ATR to pips using symbol-aware pip value
-                pip_value = get_pip_value(symbol)
+                pip_value = get_pip_value(symbol, 1.0)  # Use standard lot for ATR calculation
                 atr_distance_pips = (atr * atr_multiplier) / pip_value
                 
                 atr_calculation_success = True
@@ -257,8 +293,8 @@ def calculate_hybrid_stop_loss(symbol: str, entry_price: float, side: str,
         logger.warning(f"[HYBRID_SL] Enforcing minimum distance: {min_distance_pips:.1f} pips")
     
     # Step 5: Convert pips to price distance using symbol-aware pip value
-    pip_value = get_pip_value(symbol)
-    price_distance = get_pip_distance_in_price(symbol, final_distance_pips)
+    pip_value = get_pip_value(symbol, 1.0)  # Use standard lot for price calculation
+    price_distance = get_pip_distance_in_price(symbol, final_distance_pips, 1.0)
     logger.info(f"[HYBRID_SL] {symbol}: {final_distance_pips:.1f} pips × {pip_value:.5f} = {price_distance:.5f}")
     
     # Step 6: Calculate stop loss price
@@ -511,29 +547,42 @@ class RiskManager:
         # Calculate risk amount in account currency
         risk_amount = self.account_info.equity * (risk_percent / 100.0)
         
-        # Calculate pip value and stop distance using symbol-aware system
-        pip_value = get_pip_value(symbol)
-        stop_distance_pips = get_price_distance_in_pips(symbol, abs(entry_price - stop_loss))
+        # Calculate stop distance using symbol-aware system (using standard lot for distance calculation)
+        stop_distance_pips = get_price_distance_in_pips(symbol, abs(entry_price - stop_loss), 1.0)
         
         if stop_distance_pips < self.settings.min_stop_distance_pips:
             logger.warning(f"Stop distance too small: {stop_distance_pips:.1f} pips")
             return 0.0, 0.0
         
-        # Calculate lot size
-        # For standard lots: 1 lot = 100,000 units
-        # Risk per pip = lot_size * 100,000 * pip_value
-        # So: lot_size = risk_amount / (stop_distance_pips * pip_value * 100000)
-        lot_size = risk_amount / (stop_distance_pips * pip_value * 100000)
+        # Calculate lot size using iterative approach for lot size scaling
+        # Start with standard lot pip value, then adjust based on calculated lot size
+        pip_value_standard = get_pip_value(symbol, 1.0)  # Standard lot pip value
+        lot_size = risk_amount / (stop_distance_pips * pip_value_standard)
+        
+        # Apply lot size scaling to pip value
+        pip_value = get_pip_value(symbol, lot_size)
+        
+        # Recalculate lot size with scaled pip value
+        lot_size = risk_amount / (stop_distance_pips * pip_value)
+        
+        # Calculate raw lot size before minimum enforcement
+        raw_lot_size = lot_size
         
         # Apply minimum lot size
         lot_size = max(lot_size, self.settings.min_lot_size)
         
-        # Note: Lot size will be properly rounded by the broker adapter
-        # using the actual lot_step from symbol_info
+        # Calculate actual risk with final lot size
+        actual_risk = lot_size * stop_distance_pips * pip_value
         
-        logger.info(f"Position sizing for {symbol}: Confidence={confidence:.3f}, "
-                   f"Risk={risk_percent:.1f}% (${risk_amount:.2f}), "
-                   f"Lots={lot_size:.2f}, Stop={stop_distance_pips:.1f} pips")
+        # Enhanced logging for lot sizing calculations
+        logger.info(f"📊 [LOT_SIZING] {symbol}:")
+        logger.info(f"   💰 Account: Balance=${self.account_info.balance:,.2f}, Equity=${self.account_info.equity:,.2f}")
+        logger.info(f"   🎯 Risk: {risk_percent:.2f}% (${risk_amount:.2f}) | Confidence: {confidence:.3f}")
+        logger.info(f"   💱 Price: Entry={entry_price:.5f}, Stop={stop_loss:.5f}")
+        logger.info(f"   📏 Distance: {stop_distance_pips:.1f} pips | Pip Value: ${pip_value:.3f}")
+        logger.info(f"   🧮 Calculation: ${risk_amount:.2f} ÷ ({stop_distance_pips:.1f} × ${pip_value:.3f}) = {raw_lot_size:.6f}")
+        logger.info(f"   📦 Lot Size: Raw={raw_lot_size:.6f} → Final={lot_size:.3f} (min: {self.settings.min_lot_size:.3f})")
+        logger.info(f"   ⚖️  Actual Risk: ${actual_risk:.2f} ({actual_risk/self.account_info.equity*100:.2f}%)")
         
         return lot_size, risk_amount
     
@@ -824,7 +873,7 @@ class RiskManager:
                     logger.info(f"📈 [ENHANCED_SL] {symbol}: {stop_log}")
                     # Update the stop loss in MT5
                     self._update_stop_loss_in_mt5(symbol, new_stop)
-                
+        
                 # Enhanced take profit with partial TP and trend awareness
                 new_tp, tp_updated, tp_log = self._calculate_enhanced_take_profit(
                     position, current_price, current_atr, signal_data_5m, signal_data_15m
