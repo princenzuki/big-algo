@@ -786,7 +786,7 @@ class RiskManager:
     
     def is_in_global_cooldown(self) -> tuple[bool, str]:
         """
-        Check if the bot is in global cooldown period (10 minutes after last trade close)
+        Check if the bot is in global cooldown period (configurable minutes after last trade close)
         
         Returns:
             Tuple of (is_in_cooldown, message)
@@ -796,7 +796,7 @@ class RiskManager:
         
         current_time = datetime.now()
         time_since_close = current_time - self._last_trade_close_time
-        cooldown_duration = timedelta(minutes=10)
+        cooldown_duration = timedelta(minutes=self.settings.cooldown_minutes)
         
         if time_since_close < cooldown_duration:
             remaining_time = cooldown_duration - time_since_close

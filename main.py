@@ -912,6 +912,18 @@ class LorentzianTradingBot:
             # Get open trades from portfolio
             open_trades = self.portfolio_manager.get_open_trades()
             
+            # 🚨 CRITICAL FIX: Only process if we have open trades AND current positions
+            # This prevents false closing of trades when broker positions are empty at startup
+            if not open_trades:
+                logger.debug("No open trades to sync")
+                return
+                
+            if not current_positions:
+                logger.debug("No current broker positions - skipping position sync to avoid false closes")
+                return
+            
+            logger.debug(f"Syncing {len(open_trades)} open trades with {len(current_positions)} broker positions")
+            
             # Check for closed positions
             for trade in open_trades:
                 position_found = False
@@ -922,8 +934,8 @@ class LorentzianTradingBot:
                         break
                 
                 if not position_found:
-                    # Position was closed
-                    logger.info(f"Position closed: {trade.symbol} {trade.side}")
+                    # Position was closed by broker
+                    logger.info(f"Position closed by broker: {trade.symbol} {trade.side}")
                     # Clean up Smart TP tracking
                     self.smart_tp.close_position(trade.symbol)
                     # Note: In a real implementation, we'd need to get the actual close price
