@@ -606,8 +606,13 @@ class LorentzianTradingBot:
             # Determine trade side
             side = 'buy' if signal > 0 else 'sell'
             
+            # 🚨 CRITICAL DEBUG: Signal Direction Verification
+            logger.info(f"[SIGNAL_DEBUG] {symbol} | ML Signal: {signal} | Mapped Side: {side.upper()}")
+            logger.info(f"[SIGNAL_DEBUG] {symbol} | Signal > 0 = {signal > 0} | Side = 'buy' if signal > 0 else 'sell'")
+            
             # Calculate entry price
             entry_price = symbol_info.ask if side == 'buy' else symbol_info.bid
+            logger.info(f"[SIGNAL_DEBUG] {symbol} | Entry Price: {entry_price:.5f} ({'ASK' if side == 'buy' else 'BID'})")
             
             # ✅ Data Validation
             if not historical_data or len(historical_data) < 20:
@@ -834,6 +839,15 @@ class LorentzianTradingBot:
                 take_profit=take_profit,
                 comment="Lorentzian ML"
             )
+            
+            # 🚨 CRITICAL DEBUG: Order Request Verification
+            logger.info(f"[ORDER_DEBUG] {symbol} | OrderRequest Details:")
+            logger.info(f"   - Symbol: {order_request.symbol}")
+            logger.info(f"   - Order Type: {order_request.order_type} (should match side: {side})")
+            logger.info(f"   - Lot Size: {order_request.lot_size:.3f}")
+            logger.info(f"   - Stop Loss: {order_request.stop_loss:.5f}")
+            logger.info(f"   - Take Profit: {order_request.take_profit:.5f}")
+            logger.info(f"   - Comment: {order_request.comment}")
             
             logger.info(f"   [ORDER] Placing {side} order: {rounded_lot_size:.3f} lots @ {entry_price:.5f}")
             logger.info(f"   [LEVELS] Stop Loss: {stop_loss:.5f} ({sl_method}) | Take Profit: {take_profit:.5f} ({smart_tp_result.momentum_strength})")

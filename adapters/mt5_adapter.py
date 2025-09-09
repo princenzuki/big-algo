@@ -208,6 +208,12 @@ class MT5Adapter(BrokerAdapter):
             # Prepare order request
             order_type = mt5.ORDER_TYPE_BUY if request.order_type == 'buy' else mt5.ORDER_TYPE_SELL
             
+            # 🚨 CRITICAL DEBUG: MT5 Order Type Conversion
+            logger.info(f"[MT5_DEBUG] {request.symbol} | Order Type Conversion:")
+            logger.info(f"   - Request Order Type: {request.order_type}")
+            logger.info(f"   - MT5 Order Type: {order_type} ({'BUY' if order_type == mt5.ORDER_TYPE_BUY else 'SELL'})")
+            logger.info(f"   - Conversion Logic: mt5.ORDER_TYPE_BUY if '{request.order_type}' == 'buy' else mt5.ORDER_TYPE_SELL")
+            
             # Prepare order structure
             order_request = {
                 "action": mt5.TRADE_ACTION_DEAL,
@@ -221,6 +227,15 @@ class MT5Adapter(BrokerAdapter):
                 "type_time": mt5.ORDER_TIME_GTC,
                 "type_filling": mt5.ORDER_FILLING_IOC,
             }
+            
+            # 🚨 CRITICAL DEBUG: Final MT5 Order Structure
+            logger.info(f"[MT5_DEBUG] {request.symbol} | Final MT5 Order Structure:")
+            logger.info(f"   - Symbol: {order_request['symbol']}")
+            logger.info(f"   - Type: {order_request['type']} ({'BUY' if order_request['type'] == mt5.ORDER_TYPE_BUY else 'SELL'})")
+            logger.info(f"   - Volume: {order_request['volume']}")
+            logger.info(f"   - Price: {order_request['price']}")
+            logger.info(f"   - SL: {order_request.get('sl', 'None')}")
+            logger.info(f"   - TP: {order_request.get('tp', 'None')}")
             
             # Add stop loss and take profit if specified
             if adjusted_request.stop_loss:
