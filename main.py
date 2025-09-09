@@ -789,21 +789,6 @@ class LorentzianTradingBot:
             # Get historical data for MTF validation
             historical_data = self.historical_data.get(symbol, [])
             
-            # ✅ Momentum Ignition Filter - Wait for actual momentum, not just direction bias
-            logger.info(f"[MOMENTUM_FILTER] Starting momentum ignition validation for {symbol}...")
-            momentum_result = self._validate_momentum_ignition(
-                symbol=symbol,
-                signal=signal,
-                historical_data=historical_data
-            )
-            
-            # Check if momentum ignition allows the trade
-            if not momentum_result['allow_trade']:
-                logger.info(f"[MOMENTUM_FILTER] {symbol} | BLOCKED: {momentum_result['reason']}")
-                cycle_stats['trades_skipped'] += 1
-                cycle_stats['skip_reasons']['Momentum Filter'] = cycle_stats['skip_reasons'].get('Momentum Filter', 0) + 1
-                return
-            
             # ✅ MTF Validation - Validate signal across multiple timeframes
             logger.info(f"[MTF_VALIDATION] Starting multi-timeframe validation for {symbol}...")
             mtf_result = self.mtf_validator.validate_trade_signal(
@@ -818,6 +803,21 @@ class LorentzianTradingBot:
                 logger.info(f"[MTF_VALIDATION] {symbol} | BLOCKED: {mtf_result.reasoning}")
                 cycle_stats['trades_skipped'] += 1
                 cycle_stats['skip_reasons']['MTF Validation'] = cycle_stats['skip_reasons'].get('MTF Validation', 0) + 1
+                return
+            
+            # ✅ Momentum Ignition Filter - Wait for actual momentum, not just direction bias
+            logger.info(f"[MOMENTUM_FILTER] Starting momentum ignition validation for {symbol}...")
+            momentum_result = self._validate_momentum_ignition(
+                symbol=symbol,
+                signal=signal,
+                historical_data=historical_data
+            )
+            
+            # Check if momentum ignition allows the trade
+            if not momentum_result['allow_trade']:
+                logger.info(f"[MOMENTUM_FILTER] {symbol} | BLOCKED: {momentum_result['reason']}")
+                cycle_stats['trades_skipped'] += 1
+                cycle_stats['skip_reasons']['Momentum Filter'] = cycle_stats['skip_reasons'].get('Momentum Filter', 0) + 1
                 return
             
             # Apply MTF confidence boost
