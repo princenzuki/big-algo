@@ -531,31 +531,56 @@ class MultiTimeframeValidator:
                     scenario_label="countertrend_temporary_support"
                 )
         
-        # WEIGHTED DECISION SYSTEM (New weighting: 15M=50%, 5M=40%, 1M=10%)
+        # WEIGHTED DECISION SYSTEM - Dynamic weights based on symbol type
+        # Forex pairs: 5M=40%, 15M=40%, 1M=20% (smoother flow for majors)
+        # Other assets: 15M=50%, 5M=40%, 1M=10% (original weights)
+        
+        # Determine if this is a forex pair
+        forex_pairs = [
+            'EURUSDm', 'GBPUSDm', 'USDJPYm', 'AUDUSDm', 'USDCADm', 'USDCHFm', 'NZDUSDm',
+            'EURJPYm', 'GBPJPYm', 'CADJPYm', 'EURAUDm', 'EURGBPm', 'GBPCHFm', 'GBPNZDm',
+            'EURNZDm', 'AUDCHFm', 'AUDCADm', 'EURCHFm'
+        ]
+        
+        is_forex = tf_analysis.get('symbol', '').upper() in forex_pairs
+        
+        if is_forex:
+            # Forex pairs: 5M=40%, 15M=40%, 1M=20%
+            tf_5m_weight = 0.4
+            tf_15m_weight = 0.4
+            tf_1m_weight = 0.2
+            weight_desc = "5m=40%, 15m=40%, 1m=20%"
+        else:
+            # Other assets: 15M=50%, 5M=40%, 1M=10%
+            tf_5m_weight = 0.4
+            tf_15m_weight = 0.5
+            tf_1m_weight = 0.1
+            weight_desc = "15m=50%, 5m=40%, 1m=10%"
+        
         # Calculate weighted score based on timeframe alignment
         weighted_score = 0.0
         max_score = 0.0
         
-        # 15M timeframe weight (50%)
-        if tf_15m == signal_direction:
-            weighted_score += 0.5 * strength_15m
-        elif tf_15m == 'neutral':
-            weighted_score += 0.25 * strength_15m  # Half weight for neutral
-        max_score += 0.5
-        
-        # 5M timeframe weight (40%)
+        # 5M timeframe weight
         if tf_5m == signal_direction:
-            weighted_score += 0.4 * strength_5m
+            weighted_score += tf_5m_weight * strength_5m
         elif tf_5m == 'neutral':
-            weighted_score += 0.2 * strength_5m  # Half weight for neutral
-        max_score += 0.4
+            weighted_score += (tf_5m_weight / 2) * strength_5m  # Half weight for neutral
+        max_score += tf_5m_weight
         
-        # 1M timeframe weight (10%)
+        # 15M timeframe weight
+        if tf_15m == signal_direction:
+            weighted_score += tf_15m_weight * strength_15m
+        elif tf_15m == 'neutral':
+            weighted_score += (tf_15m_weight / 2) * strength_15m  # Half weight for neutral
+        max_score += tf_15m_weight
+        
+        # 1M timeframe weight
         if tf_1m == signal_direction:
-            weighted_score += 0.1 * strength_1m
+            weighted_score += tf_1m_weight * strength_1m
         elif tf_1m == 'neutral':
-            weighted_score += 0.05 * strength_1m  # Half weight for neutral
-        max_score += 0.1
+            weighted_score += (tf_1m_weight / 2) * strength_1m  # Half weight for neutral
+        max_score += tf_1m_weight
         
         # Normalize weighted score
         if max_score > 0:
@@ -563,54 +588,54 @@ class MultiTimeframeValidator:
         else:
             normalized_score = 0.0
         
-        # RISK SCALING BASED ON NEW WEIGHTED SCORE (15m=50%, 5m=40%, 1m=10%)
+        # RISK SCALING BASED ON DYNAMIC WEIGHTED SCORE
         if normalized_score >= 0.8:  # Strong alignment
-            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} → Score {normalized_score:.2f} (STRONG) | Weights: 15m=50%, 5m=40%, 1m=10%")
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} → Score {normalized_score:.2f} (STRONG) | Weights: {weight_desc}")
             return MTFValidationResult(
                 allow_trade=True,
                 lot_multiplier=1.2,  # Large position
                 tp_multiplier=1.0,   # Full TP targets
                 confidence_boost=0.2,
-                reasoning=f"Strong timeframe alignment (score: {normalized_score:.2f}) - New weights: 15m=50%, 5m=40%, 1m=10%",
+                reasoning=f"Strong timeframe alignment (score: {normalized_score:.2f}) - Weights: {weight_desc}",
                 timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
                 validation_score=normalized_score,
                 scenario_label="aligned_strong"
             )
         
         elif normalized_score >= 0.6:  # Good alignment
-            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} → Score {normalized_score:.2f} (GOOD) | Weights: 15m=50%, 5m=40%, 1m=10%")
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} → Score {normalized_score:.2f} (GOOD) | Weights: {weight_desc}")
             return MTFValidationResult(
                 allow_trade=True,
                 lot_multiplier=1.0,  # Normal position
                 tp_multiplier=1.0,   # Full TP targets
                 confidence_boost=0.1,
-                reasoning=f"Good timeframe alignment (score: {normalized_score:.2f}) - New weights: 15m=50%, 5m=40%, 1m=10%",
+                reasoning=f"Good timeframe alignment (score: {normalized_score:.2f}) - Weights: {weight_desc}",
                 timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
                 validation_score=normalized_score,
                 scenario_label="aligned_good"
             )
         
         elif normalized_score >= 0.4:  # Moderate alignment
-            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} → Score {normalized_score:.2f} (MODERATE) | Weights: 15m=50%, 5m=40%, 1m=10%")
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} → Score {normalized_score:.2f} (MODERATE) | Weights: {weight_desc}")
             return MTFValidationResult(
                 allow_trade=True,
                 lot_multiplier=0.7,  # Reduced position
                 tp_multiplier=0.9,   # Slightly tighter TP
                 confidence_boost=0.0,
-                reasoning=f"Moderate timeframe alignment (score: {normalized_score:.2f}) - New weights: 15m=50%, 5m=40%, 1m=10%",
+                reasoning=f"Moderate timeframe alignment (score: {normalized_score:.2f}) - Weights: {weight_desc}",
                 timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
                 validation_score=normalized_score,
                 scenario_label="aligned_moderate"
             )
         
         elif normalized_score >= 0.2:  # Weak alignment
-            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} → Score {normalized_score:.2f} (WEAK) | Weights: 15m=50%, 5m=40%, 1m=10%")
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} → Score {normalized_score:.2f} (WEAK) | Weights: {weight_desc}")
             return MTFValidationResult(
                 allow_trade=True,
                 lot_multiplier=0.4,  # Small position
                 tp_multiplier=0.7,   # Tighter TP
                 confidence_boost=0.0,
-                reasoning=f"Weak timeframe alignment (score: {normalized_score:.2f}) - New weights: 15m=50%, 5m=40%, 1m=10%",
+                reasoning=f"Weak timeframe alignment (score: {normalized_score:.2f}) - Weights: {weight_desc}",
                 timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
                 validation_score=normalized_score,
                 scenario_label="aligned_weak"
@@ -619,13 +644,13 @@ class MultiTimeframeValidator:
         else:  # Very weak alignment or conflicting signals
             # 🚨 CRITICAL: Block trades when HTF strongly opposes LTF signal
             if normalized_score < self.block_threshold:  # Default 0.3
-                self.logger.warning(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} → Score {normalized_score:.2f} < {self.block_threshold} | Weights: 15m=50%, 5m=40%, 1m=10%")
+                self.logger.warning(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} → Score {normalized_score:.2f} < {self.block_threshold} | Weights: {weight_desc}")
                 return MTFValidationResult(
                     allow_trade=False,
                     lot_multiplier=0.0,
                     tp_multiplier=0.0,
                     confidence_boost=0.0,
-                    reasoning=f"BLOCKED: HTF strongly opposes LTF signal (score: {normalized_score:.2f} < {self.block_threshold}) - New weights: 15m=50%, 5m=40%, 1m=10%",
+                    reasoning=f"BLOCKED: HTF strongly opposes LTF signal (score: {normalized_score:.2f} < {self.block_threshold}) - Weights: {weight_desc}",
                     timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
                     validation_score=normalized_score,
                     scenario_label="blocked_htf_opposition"
@@ -636,7 +661,7 @@ class MultiTimeframeValidator:
                 lot_multiplier=0.3,  # Minimal position
                 tp_multiplier=0.6,   # Tight TP for quick exit
                 confidence_boost=0.0,
-                reasoning=f"Minimal timeframe alignment (score: {normalized_score:.2f}) - New weights: 15m=50%, 5m=40%, 1m=10%",
+                reasoning=f"Minimal timeframe alignment (score: {normalized_score:.2f}) - Weights: {weight_desc}",
                 timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
                 validation_score=normalized_score,
                 scenario_label="aligned_minimal"
