@@ -542,14 +542,18 @@ class MultiTimeframeValidator:
             'EURNZDm', 'AUDCHFm', 'AUDCADm', 'EURCHFm'
         ]
         
-        is_forex = tf_analysis.get('symbol', '').upper() in forex_pairs
+        symbol = tf_analysis.get('symbol', 'UNKNOWN')
+        is_forex = symbol in forex_pairs  # Direct comparison, no case conversion needed
+        
+        # Debug logging (can be removed in production)
+        # self.logger.info(f"[MTF_DEBUG] Symbol: {symbol}, is_forex: {is_forex}")
         
         if is_forex:
-            # Forex pairs: 5M=40%, 15M=40%, 1M=20%
-            tf_5m_weight = 0.4
+            # Forex pairs: 15M=40%, 5M=40%, 1M=20%
             tf_15m_weight = 0.4
+            tf_5m_weight = 0.4
             tf_1m_weight = 0.2
-            weight_desc = "5m=40%, 15m=40%, 1m=20%"
+            weight_desc = "15m=40%, 5m=40%, 1m=20%"
         else:
             # Other assets: 15M=50%, 5M=40%, 1M=10%
             tf_5m_weight = 0.4
@@ -561,21 +565,21 @@ class MultiTimeframeValidator:
         weighted_score = 0.0
         max_score = 0.0
         
-        # 5M timeframe weight
-        if tf_5m == signal_direction:
-            weighted_score += tf_5m_weight * strength_5m
-        elif tf_5m == 'neutral':
-            weighted_score += (tf_5m_weight / 2) * strength_5m  # Half weight for neutral
-        max_score += tf_5m_weight
-        
-        # 15M timeframe weight
+        # 15M timeframe weight (highest priority for both forex and other assets)
         if tf_15m == signal_direction:
             weighted_score += tf_15m_weight * strength_15m
         elif tf_15m == 'neutral':
             weighted_score += (tf_15m_weight / 2) * strength_15m  # Half weight for neutral
         max_score += tf_15m_weight
         
-        # 1M timeframe weight
+        # 5M timeframe weight (equal to 15m for forex, secondary for others)
+        if tf_5m == signal_direction:
+            weighted_score += tf_5m_weight * strength_5m
+        elif tf_5m == 'neutral':
+            weighted_score += (tf_5m_weight / 2) * strength_5m  # Half weight for neutral
+        max_score += tf_5m_weight
+        
+        # 1M timeframe weight (lowest priority for both)
         if tf_1m == signal_direction:
             weighted_score += tf_1m_weight * strength_1m
         elif tf_1m == 'neutral':
