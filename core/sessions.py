@@ -43,7 +43,7 @@ class SessionManager:
         self.london_start = time(10, 0)    # 10:00 AM
         self.london_end = time(19, 0)      # 7:00 PM
         self.new_york_start = time(15, 0)  # 3:00 PM
-        self.new_york_end = time(0, 0)     # Midnight (next day)
+        self.new_york_end = time(23, 59)   # 11:59 PM (spans until midnight)
         self.asia_start = time(2, 0)       # 2:00 AM
         self.asia_end = time(11, 0)        # 11:00 AM
         
@@ -74,30 +74,8 @@ class SessionManager:
         Returns:
             Tuple of (is_blocked, reason)
         """
-        current_time = self.get_current_time()
-        current_weekday = current_time.weekday()  # 0=Monday, 6=Sunday
-        current_time_only = current_time.time()
-        
-        # Check if symbol is allowed to trade on weekends (from YAML config)
-        if symbol_config and symbol_config.get('allow_weekend', False):
-            return False, "OK"
-        
-        # Fallback to hard-coded logic for backward compatibility
-        if symbol == 'BTCUSD':
-            return False, "OK"
-        
-        # Check if it's weekend block period
-        if current_weekday == 4:  # Friday
-            if current_time_only >= self.weekend_start:
-                return True, f"WEEKEND_BLOCK (Friday {current_time_only.strftime('%H:%M')} >= {self.weekend_start.strftime('%H:%M')})"
-        elif current_weekday == 5:  # Saturday
-            return True, f"WEEKEND_BLOCK (Saturday {current_time_only.strftime('%H:%M')})"
-        elif current_weekday == 6:  # Sunday
-            return True, f"WEEKEND_BLOCK (Sunday {current_time_only.strftime('%H:%M')})"
-        elif current_weekday == 0:  # Monday
-            if current_time_only <= self.weekend_end:
-                return True, f"WEEKEND_BLOCK (Monday {current_time_only.strftime('%H:%M')} <= {self.weekend_end.strftime('%H:%M')})"
-        
+        # 24/7 TRADING ENABLED - No weekend restrictions
+        # All symbols can trade 24/7 including weekends
         return False, "OK"
     
     def get_current_session(self) -> str:
@@ -114,8 +92,8 @@ class SessionManager:
         if self.london_start <= current_time_only < self.london_end:
             return 'london'
         
-        # Check New York session (spans midnight)
-        if current_time_only >= self.new_york_start or current_time_only < time(0, 0):
+        # Check New York session (3:00 PM - 11:59 PM)
+        if self.new_york_start <= current_time_only <= self.new_york_end:
             return 'new_york'
         
         # Check Asia session
@@ -161,20 +139,13 @@ class SessionManager:
         Returns:
             Tuple of (can_trade, reason)
         """
-        # Check weekend blocking
+        # 24/7 TRADING ENABLED - No session restrictions
+        # Only check weekend blocking for non-crypto symbols
         is_blocked, weekend_reason = self.is_weekend_blocked(symbol, symbol_config)
         if is_blocked:
             return False, weekend_reason
         
-        # Check current session
-        current_session = self.get_current_session()
-        if current_session == 'closed':
-            return False, "SESSION_CLOSED"
-        
-        # Check if symbol is allowed in current session
-        if not self.is_session_allowed(symbol, current_session):
-            return False, f"SYMBOL_NOT_ALLOWED_{current_session.upper()}"
-        
+        # All other checks removed - bot runs 24/7
         return True, "OK"
     
     def get_session_info(self) -> Dict[str, any]:
