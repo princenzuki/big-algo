@@ -610,15 +610,20 @@ class MultiTimeframeValidator:
         # Forex pairs: 5M=40%, 15M=40%, 1M=20% (smoother flow for majors)
         # Other assets: 15M=50%, 5M=40%, 1M=10% (original weights)
         
-        # Determine if this is a forex pair
+        # Determine asset type for appropriate weighting
         forex_pairs = [
             'EURUSDm', 'GBPUSDm', 'USDJPYm', 'AUDUSDm', 'USDCADm', 'USDCHFm', 'NZDUSDm',
             'EURJPYm', 'GBPJPYm', 'CADJPYm', 'EURAUDm', 'EURGBPm', 'GBPCHFm', 'GBPNZDm',
             'EURNZDm', 'AUDCHFm', 'AUDCADm', 'EURCHFm'
         ]
         
+        crypto_pairs = [
+            'BTCUSDm', 'ETHUSDm', 'LTCUSDm', 'XRPUSDm'  # Add other crypto pairs as needed
+        ]
+        
         symbol = tf_analysis.get('symbol', 'UNKNOWN')
-        is_forex = symbol in forex_pairs  # Direct comparison, no case conversion needed
+        is_forex = symbol in forex_pairs
+        is_crypto = symbol in crypto_pairs
         
         # Debug logging (can be removed in production)
         # self.logger.info(f"[MTF_DEBUG] Symbol: {symbol}, is_forex: {is_forex}")
@@ -630,11 +635,14 @@ class MultiTimeframeValidator:
             tf_1m_weight = 0.2
             weight_desc = "15m=40%, 5m=40%, 1m=20%"
         else:
-            # Other assets: 15M=50%, 5M=40%, 1M=10%
-            tf_5m_weight = 0.4
+            # All other assets (crypto, indices, commodities): 15M=50%, 5M=40%, 1M=10%
             tf_15m_weight = 0.5
+            tf_5m_weight = 0.4
             tf_1m_weight = 0.1
-            weight_desc = "15m=50%, 5m=40%, 1m=10%"
+            if is_crypto:
+                weight_desc = "15m=50%, 5m=40%, 1m=10% (crypto)"
+            else:
+                weight_desc = "15m=50%, 5m=40%, 1m=10%"
         
         # Calculate weighted score based on timeframe alignment
         weighted_score = 0.0

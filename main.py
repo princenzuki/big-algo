@@ -630,7 +630,14 @@ class LorentzianTradingBot:
                 }
             
             body_percentage = (body_size / candle_range) * 100
-            min_body_percentage = 60.0
+            
+            # Adjust body strength threshold based on asset type
+            # Crypto is more volatile, so use lower threshold
+            crypto_pairs = ['BTCUSDm', 'ETHUSDm', 'LTCUSDm', 'XRPUSDm']
+            if symbol in crypto_pairs:
+                min_body_percentage = 45.0  # Lower threshold for crypto (more volatile)
+            else:
+                min_body_percentage = 60.0  # Standard threshold for forex/other assets
             
             if body_percentage < min_body_percentage:
                 return {
