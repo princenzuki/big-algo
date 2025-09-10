@@ -496,7 +496,12 @@ class MultiTimeframeValidator:
     
     def _determine_validation(self, signal: int, tf_analysis: Dict) -> MTFValidationResult:
         """
-        Determine trade validation based on intelligent pullback detection and weighted timeframe analysis
+        Determine trade validation based on strict timeframe alignment requirements
+        
+        Rules:
+        1. Allow trade if 1m signal matches both 5m and 15m timeframes
+        2. Allow trade if at least 2 out of 3 timeframes are aligned in same direction
+        3. Block all counter-trend trades (no temporary HTF support)
         
         Args:
             signal: Trade signal (1 for long, -1 for short)
@@ -537,254 +542,91 @@ class MultiTimeframeValidator:
         self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | LTF: {ltf_signal} | HTF: {htf_5m}, {htf_15m} | Data: {data_source}")
         self.logger.info(f"[MTF_DEBUG] Symbol: {tf_analysis.get('symbol', 'UNKNOWN')} | 1m: {signal_1m}({confidence_1m:.3f}), 5m: {signal_5m}({confidence_5m:.3f}), 15m: {signal_15m}({confidence_15m:.3f}), Final Action: {signal_direction}")
         
-        # PULLBACK DETECTION LOGIC
-        # Check for bullish pullback: 15M bullish, 5M+1M bearish
-        if tf_15m == 'bullish' and tf_5m == 'bearish' and tf_1m == 'bearish':
-            if signal_direction == 'bearish':  # Countertrend short in bullish pullback
-                return MTFValidationResult(
-                    allow_trade=True,
-                    lot_multiplier=0.4,  # Small countertrend position
-                    tp_multiplier=0.6,   # Tighter TP for quick scalp
-                    confidence_boost=0.0,
-                    reasoning="Bullish pullback - countertrend short scalp",
-                    timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                    validation_score=0.3,
-                    scenario_label="pullback_countertrend"
-                )
-            else:  # Long signal in bullish pullback - trend continuation
-                return MTFValidationResult(
-                    allow_trade=True,
-                    lot_multiplier=1.1,  # Larger position for trend continuation
-                    tp_multiplier=1.0,   # Full TP targets
-                    confidence_boost=0.15,
-                    reasoning="Bullish pullback - trend continuation long",
-                    timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                    validation_score=0.8,
-                    scenario_label="pullback_continuation"
-                )
+        # STRICT TIMEFRAME ALIGNMENT VALIDATION
         
-        # Check for bearish pullback: 15M bearish, 5M+1M bullish
-        elif tf_15m == 'bearish' and tf_5m == 'bullish' and tf_1m == 'bullish':
-            if signal_direction == 'bullish':  # Countertrend long in bearish pullback
-                return MTFValidationResult(
-                    allow_trade=True,
-                    lot_multiplier=0.4,  # Small countertrend position
-                    tp_multiplier=0.6,   # Tighter TP for quick scalp
-                    confidence_boost=0.0,
-                    reasoning="Bearish pullback - countertrend long scalp",
-                    timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                    validation_score=0.3,
-                    scenario_label="pullback_countertrend"
-                )
-            else:  # Short signal in bearish pullback - trend continuation
-                return MTFValidationResult(
-                    allow_trade=True,
-                    lot_multiplier=1.1,  # Larger position for trend continuation
-                    tp_multiplier=1.0,   # Full TP targets
-                    confidence_boost=0.15,
-                    reasoning="Bearish pullback - trend continuation short",
-                    timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                    validation_score=0.8,
-                    scenario_label="pullback_continuation"
-                )
+        # Count aligned timeframes (excluding neutral)
+        aligned_count = 0
+        opposing_count = 0
+        neutral_count = 0
         
-        # 🚀 AGGRESSIVE COUNTER-TREND FILTERING WITH NEW WEIGHTING
-        # New weighting: 15m=50%, 5m=40%, 1m=10%
-        
-        # First, check for counter-trend scenarios
-        is_counter_trend = False
-        htf_opposition_strength = 0.0
-        
-        # Determine if this is a counter-trend trade
-        if signal_direction == 'bullish':
-            # Long signal - check if HTF opposes
-            if tf_15m == 'bearish' or tf_5m == 'bearish':
-                is_counter_trend = True
-                # Calculate HTF opposition strength
-                if tf_15m == 'bearish':
-                    htf_opposition_strength += 0.5 * strength_15m  # 15m weight
-                if tf_5m == 'bearish':
-                    htf_opposition_strength += 0.4 * strength_5m   # 5m weight
-        else:  # signal_direction == 'bearish'
-            # Short signal - check if HTF opposes
-            if tf_15m == 'bullish' or tf_5m == 'bullish':
-                is_counter_trend = True
-                # Calculate HTF opposition strength
-                if tf_15m == 'bullish':
-                    htf_opposition_strength += 0.5 * strength_15m  # 15m weight
-                if tf_5m == 'bullish':
-                    htf_opposition_strength += 0.4 * strength_5m   # 5m weight
-        
-        # AGGRESSIVE COUNTER-TREND FILTERING
-        if is_counter_trend:
-            # Check if HTF strongly opposes the 1m signal
-            if htf_opposition_strength > 0.6:  # Strong HTF opposition
-                self.logger.warning(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: Counter-trend trade blocked - HTF strongly opposes 1m signal | HTF Opposition: {htf_opposition_strength:.2f} | LTF={ltf_signal} vs HTF={htf_5m},{htf_15m}")
-                return MTFValidationResult(
-                    allow_trade=False,
-                    lot_multiplier=0.0,
-                    tp_multiplier=0.0,
-                    confidence_boost=0.0,
-                    reasoning=f"BLOCKED: Counter-trend trade - HTF strongly opposes 1m signal (opposition: {htf_opposition_strength:.2f})",
-                    timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                    validation_score=0.0,
-                    scenario_label="blocked_countertrend_htf_opposition"
-                )
-            else:
-                # Allow counter-trend trade with temporary HTF support
-                self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | ALLOWED: Counter-trend trade - temporary HTF support | HTF Opposition: {htf_opposition_strength:.2f} | LTF={ltf_signal} vs HTF={htf_5m},{htf_15m}")
-                return MTFValidationResult(
-                    allow_trade=True,
-                    lot_multiplier=0.3,  # Small position for counter-trend
-                    tp_multiplier=0.6,   # Tighter TP for quick exit
-                    confidence_boost=0.0,
-                    reasoning=f"Counter-trend trade allowed - temporary HTF support (opposition: {htf_opposition_strength:.2f})",
-                    timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                    validation_score=0.3,
-                    scenario_label="countertrend_temporary_support"
-                )
-        
-        # WEIGHTED DECISION SYSTEM - Dynamic weights based on symbol type
-        # Forex pairs: 5M=40%, 15M=40%, 1M=20% (smoother flow for majors)
-        # Other assets: 15M=50%, 5M=40%, 1M=10% (original weights)
-        
-        # Determine asset type for appropriate weighting
-        forex_pairs = [
-            'EURUSDm', 'GBPUSDm', 'USDJPYm', 'AUDUSDm', 'USDCADm', 'USDCHFm', 'NZDUSDm',
-            'EURJPYm', 'GBPJPYm', 'CADJPYm', 'EURAUDm', 'EURGBPm', 'GBPCHFm', 'GBPNZDm',
-            'EURNZDm', 'AUDCHFm', 'AUDCADm', 'EURCHFm'
-        ]
-        
-        # Indices, Gold, Oil, and Crypto use the same weights
-        indices_commodities_crypto = [
-            # Indices
-            'US30m', 'US500m', 'USTECm', 'NAS100m',
-            # Commodities
-            'XAUUSDm', 'USOILm', 'UKOILm',
-            # Crypto
-            'BTCUSDm', 'ETHUSDm', 'LTCUSDm', 'XRPUSDm'
-        ]
-        
-        symbol = tf_analysis.get('symbol', 'UNKNOWN')
-        is_forex = symbol in forex_pairs
-        is_indices_commodities_crypto = symbol in indices_commodities_crypto
-        
-        # Debug logging (can be removed in production)
-        # self.logger.info(f"[MTF_DEBUG] Symbol: {symbol}, is_forex: {is_forex}")
-        
-        if is_forex:
-            # Forex pairs: 15M=60%, 5M=20%, 1M=20%
-            tf_15m_weight = 0.6
-            tf_5m_weight = 0.2
-            tf_1m_weight = 0.2
-            weight_desc = "15m=60%, 5m=20%, 1m=20% (forex)"
-        elif is_indices_commodities_crypto:
-            # Indices, Gold, Oil, and Crypto: 15M=50%, 5M=30%, 1M=20%
-            tf_15m_weight = 0.5
-            tf_5m_weight = 0.3
-            tf_1m_weight = 0.2
-            weight_desc = "15m=50%, 5m=30%, 1m=20% (indices/commodities/crypto)"
-        else:
-            # Default fallback: 15M=50%, 5M=40%, 1M=10%
-            tf_15m_weight = 0.5
-            tf_5m_weight = 0.4
-            tf_1m_weight = 0.1
-            weight_desc = "15m=50%, 5m=40%, 1m=10% (default)"
-        
-        # Calculate weighted score based on timeframe alignment
-        weighted_score = 0.0
-        max_score = 0.0
-        
-        # 15M timeframe weight (highest priority for both forex and other assets)
-        if tf_15m == signal_direction:
-            weighted_score += tf_15m_weight * strength_15m
-        elif tf_15m == 'neutral':
-            weighted_score += (tf_15m_weight / 2) * strength_15m  # Half weight for neutral
-        max_score += tf_15m_weight
-        
-        # 5M timeframe weight (equal to 15m for forex, secondary for others)
-        if tf_5m == signal_direction:
-            weighted_score += tf_5m_weight * strength_5m
-        elif tf_5m == 'neutral':
-            weighted_score += (tf_5m_weight / 2) * strength_5m  # Half weight for neutral
-        max_score += tf_5m_weight
-        
-        # 1M timeframe weight (lowest priority for both)
+        # Check 1m alignment
         if tf_1m == signal_direction:
-            weighted_score += tf_1m_weight * strength_1m
+            aligned_count += 1
         elif tf_1m == 'neutral':
-            weighted_score += (tf_1m_weight / 2) * strength_1m  # Half weight for neutral
-        max_score += tf_1m_weight
-        
-        # Normalize weighted score
-        if max_score > 0:
-            normalized_score = weighted_score / max_score
+            neutral_count += 1
         else:
-            normalized_score = 0.0
+            opposing_count += 1
         
-        # ENFORCEMENT THRESHOLDS BASED ON ASSET TYPE
-        threshold = 0.5  # Default threshold for both groups
+        # Check 5m alignment
+        if tf_5m == signal_direction:
+            aligned_count += 1
+        elif tf_5m == 'neutral':
+            neutral_count += 1
+        else:
+            opposing_count += 1
         
-        # Determine if trade should be allowed based on score and threshold
-        if normalized_score >= threshold:
-            # Determine strength level for lot sizing
-            if normalized_score >= 0.8:
-                strength_level = "STRONG"
-                lot_multiplier = 1.2
-                tp_multiplier = 1.0
-                confidence_boost = 0.2
-                scenario_label = "aligned_strong"
-            elif normalized_score >= 0.7:
-                strength_level = "GOOD"
-                lot_multiplier = 1.0
-                tp_multiplier = 1.0
-                confidence_boost = 0.1
-                scenario_label = "aligned_good"
-            elif normalized_score >= 0.6:
-                strength_level = "MODERATE"
-                lot_multiplier = 0.8
-                tp_multiplier = 0.95
-                confidence_boost = 0.05
-                scenario_label = "aligned_moderate"
-            else:
-                strength_level = "WEAK"
-                lot_multiplier = 0.6
-                tp_multiplier = 0.9
-                confidence_boost = 0.0
-                scenario_label = "aligned_weak"
-            
-            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: Score {normalized_score:.2f} >= {threshold} ({strength_level}) | Weights: {weight_desc}")
+        # Check 15m alignment
+        if tf_15m == signal_direction:
+            aligned_count += 1
+        elif tf_15m == 'neutral':
+            neutral_count += 1
+        else:
+            opposing_count += 1
+        
+        # RULE 1: Perfect alignment - 1m matches both 5m and 15m
+        if aligned_count == 3:
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | ALLOWED: Perfect alignment - all timeframes match {signal_direction.upper()}")
             return MTFValidationResult(
                 allow_trade=True,
-                lot_multiplier=lot_multiplier,
-                tp_multiplier=tp_multiplier,
-                confidence_boost=confidence_boost,
-                reasoning=f"{strength_level} timeframe alignment (score: {normalized_score:.2f}) - Weights: {weight_desc}",
+                lot_multiplier=1.3,  # Maximum position for perfect alignment
+                tp_multiplier=1.2,   # Extended TP for strong trend
+                confidence_boost=0.3,
+                reasoning=f"Perfect alignment - all timeframes {signal_direction}",
                 timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                validation_score=normalized_score,
-                scenario_label=scenario_label
+                validation_score=1.0,
+                scenario_label="perfect_alignment"
             )
-        else:
-            # Trade blocked - determine reason
-            if tf_15m == 'neutral':
-                reason = f"15m neutral, score={normalized_score:.2f} < {threshold}"
-            elif tf_5m == 'neutral':
-                reason = f"5m neutral, score={normalized_score:.2f} < {threshold}"
-            elif tf_1m == 'neutral':
-                reason = f"1m neutral, score={normalized_score:.2f} < {threshold}"
-            else:
-                reason = f"Score {normalized_score:.2f} < {threshold}"
-            
-            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: {reason} | Weights: {weight_desc}")
+        
+        # RULE 2: At least 2 out of 3 timeframes aligned
+        elif aligned_count >= 2:
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | ALLOWED: {aligned_count}/3 timeframes aligned {signal_direction.upper()}")
+            return MTFValidationResult(
+                allow_trade=True,
+                lot_multiplier=1.0,  # Standard position for good alignment
+                tp_multiplier=1.0,   # Standard TP
+                confidence_boost=0.1,
+                reasoning=f"Good alignment - {aligned_count}/3 timeframes {signal_direction}",
+                timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
+                validation_score=0.7,
+                scenario_label="good_alignment"
+            )
+        
+        # RULE 3: Block counter-trend trades (HTF opposition)
+        elif opposing_count > 0:
+            self.logger.warning(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: Higher timeframe disagreement - {opposing_count} timeframes oppose {signal_direction.upper()} signal | LTF={ltf_signal} vs HTF={htf_5m},{htf_15m}")
             return MTFValidationResult(
                 allow_trade=False,
                 lot_multiplier=0.0,
                 tp_multiplier=0.0,
                 confidence_boost=0.0,
-                reasoning=f"BLOCKED: {reason} | Weights: {weight_desc}",
+                reasoning=f"BLOCKED: Higher timeframe disagreement - {opposing_count} timeframes oppose {signal_direction} signal",
                 timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                validation_score=normalized_score,
-                scenario_label="blocked_low_score"
+                validation_score=0.0,
+                scenario_label="blocked_htf_disagreement"
+            )
+        
+        # RULE 4: Insufficient alignment (too many neutrals)
+        else:
+            self.logger.warning(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: Insufficient alignment - only {aligned_count}/3 timeframes aligned, {neutral_count} neutral | LTF={ltf_signal} vs HTF={htf_5m},{htf_15m}")
+            return MTFValidationResult(
+                allow_trade=False,
+                lot_multiplier=0.0,
+                tp_multiplier=0.0,
+                confidence_boost=0.0,
+                reasoning=f"BLOCKED: Insufficient alignment - only {aligned_count}/3 timeframes aligned, {neutral_count} neutral",
+                timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
+                validation_score=0.0,
+                scenario_label="blocked_insufficient_alignment"
             )
         
     
