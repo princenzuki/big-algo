@@ -342,7 +342,7 @@ class MultiTimeframeValidator:
     
     def _determine_trend_from_ml_signal(self, ml_signal: int, feature_series: FeatureSeries) -> str:
         """
-        Determine trend direction from ML signal and feature series
+        Determine trend direction from ML signal and feature series with enhanced trend detection
         
         Args:
             ml_signal: ML signal from Lorentzian classifier (1, -1, 0)
@@ -357,6 +357,81 @@ class MultiTimeframeValidator:
         elif ml_signal == -1:
             return 'bearish'
         else:
+            # ML signal is 0 (neutral), but check indicators for trend bias
+            return self._detect_trend_from_indicators(feature_series)
+    
+    def _detect_trend_from_indicators(self, feature_series: FeatureSeries) -> str:
+        """
+        Detect trend direction from indicator values when ML signal is neutral
+        
+        Args:
+            feature_series: Feature series with indicator values
+            
+        Returns:
+            'bullish', 'bearish', or 'neutral'
+        """
+        try:
+            # Get the latest indicator values
+            rsi_14 = feature_series.f1[-1] if len(feature_series.f1) > 0 else 50
+            wt_10 = feature_series.f2[-1] if len(feature_series.f2) > 0 else 0
+            cci_20 = feature_series.f3[-1] if len(feature_series.f3) > 0 else 0
+            adx_20 = feature_series.f4[-1] if len(feature_series.f4) > 0 else 0
+            rsi_9 = feature_series.f5[-1] if len(feature_series.f5) > 0 else 50
+            
+            # Debug logging for indicator values
+            self.logger.debug(f"[TREND_DETECTION] RSI14={rsi_14:.2f}, WT10={wt_10:.2f}, CCI20={cci_20:.2f}, ADX20={adx_20:.2f}, RSI9={rsi_9:.2f}")
+            
+            # Calculate trend score based on multiple indicators
+            bullish_score = 0
+            bearish_score = 0
+            
+            # RSI(14) trend bias
+            if rsi_14 > 60:
+                bullish_score += 1
+            elif rsi_14 < 40:
+                bearish_score += 1
+            
+            # RSI(9) trend bias  
+            if rsi_9 > 60:
+                bullish_score += 1
+            elif rsi_9 < 40:
+                bearish_score += 1
+                
+            # CCI trend bias
+            if cci_20 > 100:
+                bullish_score += 1
+            elif cci_20 < -100:
+                bearish_score += 1
+                
+            # Williams %R trend bias (WT)
+            if wt_10 > -20:
+                bullish_score += 1
+            elif wt_10 < -80:
+                bearish_score += 1
+                
+            # ADX strength filter (only consider trend if ADX > 25)
+            if adx_20 > 25:
+                # Strong trend - weight the signals more
+                if bullish_score > bearish_score:
+                    self.logger.debug(f"[TREND_DETECTION] Strong bullish trend detected: Bull={bullish_score}, Bear={bearish_score}, ADX={adx_20:.2f}")
+                    return 'bullish'
+                elif bearish_score > bullish_score:
+                    self.logger.debug(f"[TREND_DETECTION] Strong bearish trend detected: Bull={bullish_score}, Bear={bearish_score}, ADX={adx_20:.2f}")
+                    return 'bearish'
+            else:
+                # Weak trend - only return direction if there's a clear bias
+                if bullish_score >= 3:
+                    self.logger.debug(f"[TREND_DETECTION] Weak bullish trend detected: Bull={bullish_score}, Bear={bearish_score}, ADX={adx_20:.2f}")
+                    return 'bullish'
+                elif bearish_score >= 3:
+                    self.logger.debug(f"[TREND_DETECTION] Weak bearish trend detected: Bull={bullish_score}, Bear={bearish_score}, ADX={adx_20:.2f}")
+                    return 'bearish'
+            
+            self.logger.debug(f"[TREND_DETECTION] No clear trend: Bull={bullish_score}, Bear={bearish_score}, ADX={adx_20:.2f}")
+            return 'neutral'
+            
+        except Exception as e:
+            self.logger.warning(f"Error in trend detection from indicators: {e}")
             return 'neutral'
     
     def _calculate_trend_strength_from_ml(self, confidence: float, feature_series: FeatureSeries) -> float:
@@ -594,7 +669,7 @@ class MultiTimeframeValidator:
         
         # RISK SCALING BASED ON DYNAMIC WEIGHTED SCORE
         if normalized_score >= 0.8:  # Strong alignment
-            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} → Score {normalized_score:.2f} (STRONG) | Weights: {weight_desc}")
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} -> Score {normalized_score:.2f} (STRONG) | Weights: {weight_desc}")
             return MTFValidationResult(
                 allow_trade=True,
                 lot_multiplier=1.2,  # Large position
@@ -607,7 +682,7 @@ class MultiTimeframeValidator:
             )
         
         elif normalized_score >= 0.6:  # Good alignment
-            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} → Score {normalized_score:.2f} (GOOD) | Weights: {weight_desc}")
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} -> Score {normalized_score:.2f} (GOOD) | Weights: {weight_desc}")
             return MTFValidationResult(
                 allow_trade=True,
                 lot_multiplier=1.0,  # Normal position
@@ -620,7 +695,7 @@ class MultiTimeframeValidator:
             )
         
         elif normalized_score >= 0.4:  # Moderate alignment
-            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} → Score {normalized_score:.2f} (MODERATE) | Weights: {weight_desc}")
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} -> Score {normalized_score:.2f} (MODERATE) | Weights: {weight_desc}")
             return MTFValidationResult(
                 allow_trade=True,
                 lot_multiplier=0.7,  # Reduced position
@@ -633,7 +708,7 @@ class MultiTimeframeValidator:
             )
         
         elif normalized_score >= 0.2:  # Weak alignment
-            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} → Score {normalized_score:.2f} (WEAK) | Weights: {weight_desc}")
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} -> Score {normalized_score:.2f} (WEAK) | Weights: {weight_desc}")
             return MTFValidationResult(
                 allow_trade=True,
                 lot_multiplier=0.4,  # Small position
@@ -648,7 +723,7 @@ class MultiTimeframeValidator:
         else:  # Very weak alignment or conflicting signals
             # 🚨 CRITICAL: Block trades when HTF strongly opposes LTF signal
             if normalized_score < self.block_threshold:  # Default 0.3
-                self.logger.warning(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} → Score {normalized_score:.2f} < {self.block_threshold} | Weights: {weight_desc}")
+                self.logger.warning(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} -> Score {normalized_score:.2f} < {self.block_threshold} | Weights: {weight_desc}")
                 return MTFValidationResult(
                     allow_trade=False,
                     lot_multiplier=0.0,
