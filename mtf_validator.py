@@ -617,32 +617,41 @@ class MultiTimeframeValidator:
             'EURNZDm', 'AUDCHFm', 'AUDCADm', 'EURCHFm'
         ]
         
-        crypto_pairs = [
-            'BTCUSDm', 'ETHUSDm', 'LTCUSDm', 'XRPUSDm'  # Add other crypto pairs as needed
+        # Indices, Gold, Oil, and Crypto use the same weights
+        indices_commodities_crypto = [
+            # Indices
+            'US30m', 'US500m', 'USTECm', 'NAS100m',
+            # Commodities
+            'XAUUSDm', 'USOILm', 'UKOILm',
+            # Crypto
+            'BTCUSDm', 'ETHUSDm', 'LTCUSDm', 'XRPUSDm'
         ]
         
         symbol = tf_analysis.get('symbol', 'UNKNOWN')
         is_forex = symbol in forex_pairs
-        is_crypto = symbol in crypto_pairs
+        is_indices_commodities_crypto = symbol in indices_commodities_crypto
         
         # Debug logging (can be removed in production)
         # self.logger.info(f"[MTF_DEBUG] Symbol: {symbol}, is_forex: {is_forex}")
         
         if is_forex:
-            # Forex pairs: 15M=40%, 5M=40%, 1M=20%
-            tf_15m_weight = 0.4
-            tf_5m_weight = 0.4
+            # Forex pairs: 15M=60%, 5M=20%, 1M=20%
+            tf_15m_weight = 0.6
+            tf_5m_weight = 0.2
             tf_1m_weight = 0.2
-            weight_desc = "15m=40%, 5m=40%, 1m=20%"
+            weight_desc = "15m=60%, 5m=20%, 1m=20% (forex)"
+        elif is_indices_commodities_crypto:
+            # Indices, Gold, Oil, and Crypto: 15M=50%, 5M=30%, 1M=20%
+            tf_15m_weight = 0.5
+            tf_5m_weight = 0.3
+            tf_1m_weight = 0.2
+            weight_desc = "15m=50%, 5m=30%, 1m=20% (indices/commodities/crypto)"
         else:
-            # All other assets (crypto, indices, commodities): 15M=50%, 5M=40%, 1M=10%
+            # Default fallback: 15M=50%, 5M=40%, 1M=10%
             tf_15m_weight = 0.5
             tf_5m_weight = 0.4
             tf_1m_weight = 0.1
-            if is_crypto:
-                weight_desc = "15m=50%, 5m=40%, 1m=10% (crypto)"
-            else:
-                weight_desc = "15m=50%, 5m=40%, 1m=10%"
+            weight_desc = "15m=50%, 5m=40%, 1m=10% (default)"
         
         # Calculate weighted score based on timeframe alignment
         weighted_score = 0.0
@@ -675,84 +684,71 @@ class MultiTimeframeValidator:
         else:
             normalized_score = 0.0
         
-        # RISK SCALING BASED ON DYNAMIC WEIGHTED SCORE
-        if normalized_score >= 0.8:  # Strong alignment
-            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} -> Score {normalized_score:.2f} (STRONG) | Weights: {weight_desc}")
-            return MTFValidationResult(
-                allow_trade=True,
-                lot_multiplier=1.2,  # Large position
-                tp_multiplier=1.0,   # Full TP targets
-                confidence_boost=0.2,
-                reasoning=f"Strong timeframe alignment (score: {normalized_score:.2f}) - Weights: {weight_desc}",
-                timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                validation_score=normalized_score,
-                scenario_label="aligned_strong"
-            )
+        # ENFORCEMENT THRESHOLDS BASED ON ASSET TYPE
+        threshold = 0.5  # Default threshold for both groups
         
-        elif normalized_score >= 0.6:  # Good alignment
-            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} -> Score {normalized_score:.2f} (GOOD) | Weights: {weight_desc}")
-            return MTFValidationResult(
-                allow_trade=True,
-                lot_multiplier=1.0,  # Normal position
-                tp_multiplier=1.0,   # Full TP targets
-                confidence_boost=0.1,
-                reasoning=f"Good timeframe alignment (score: {normalized_score:.2f}) - Weights: {weight_desc}",
-                timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                validation_score=normalized_score,
-                scenario_label="aligned_good"
-            )
-        
-        elif normalized_score >= 0.4:  # Moderate alignment
-            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} -> Score {normalized_score:.2f} (MODERATE) | Weights: {weight_desc}")
-            return MTFValidationResult(
-                allow_trade=True,
-                lot_multiplier=0.7,  # Reduced position
-                tp_multiplier=0.9,   # Slightly tighter TP
-                confidence_boost=0.0,
-                reasoning=f"Moderate timeframe alignment (score: {normalized_score:.2f}) - Weights: {weight_desc}",
-                timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                validation_score=normalized_score,
-                scenario_label="aligned_moderate"
-            )
-        
-        elif normalized_score >= 0.2:  # Weak alignment
-            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} -> Score {normalized_score:.2f} (WEAK) | Weights: {weight_desc}")
-            return MTFValidationResult(
-                allow_trade=True,
-                lot_multiplier=0.4,  # Small position
-                tp_multiplier=0.7,   # Tighter TP
-                confidence_boost=0.0,
-                reasoning=f"Weak timeframe alignment (score: {normalized_score:.2f}) - Weights: {weight_desc}",
-                timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                validation_score=normalized_score,
-                scenario_label="aligned_weak"
-            )
-        
-        else:  # Very weak alignment or conflicting signals
-            # 🚨 CRITICAL: Block trades when HTF strongly opposes LTF signal
-            if normalized_score < self.block_threshold:  # Default 0.3
-                self.logger.warning(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: LTF={ltf_signal} vs HTF={htf_5m},{htf_15m} -> Score {normalized_score:.2f} < {self.block_threshold} | Weights: {weight_desc}")
-                return MTFValidationResult(
-                    allow_trade=False,
-                    lot_multiplier=0.0,
-                    tp_multiplier=0.0,
-                    confidence_boost=0.0,
-                    reasoning=f"BLOCKED: HTF strongly opposes LTF signal (score: {normalized_score:.2f} < {self.block_threshold}) - Weights: {weight_desc}",
-                    timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                    validation_score=normalized_score,
-                    scenario_label="blocked_htf_opposition"
-                )
+        # Determine if trade should be allowed based on score and threshold
+        if normalized_score >= threshold:
+            # Determine strength level for lot sizing
+            if normalized_score >= 0.8:
+                strength_level = "STRONG"
+                lot_multiplier = 1.2
+                tp_multiplier = 1.0
+                confidence_boost = 0.2
+                scenario_label = "aligned_strong"
+            elif normalized_score >= 0.7:
+                strength_level = "GOOD"
+                lot_multiplier = 1.0
+                tp_multiplier = 1.0
+                confidence_boost = 0.1
+                scenario_label = "aligned_good"
+            elif normalized_score >= 0.6:
+                strength_level = "MODERATE"
+                lot_multiplier = 0.8
+                tp_multiplier = 0.95
+                confidence_boost = 0.05
+                scenario_label = "aligned_moderate"
+            else:
+                strength_level = "WEAK"
+                lot_multiplier = 0.6
+                tp_multiplier = 0.9
+                confidence_boost = 0.0
+                scenario_label = "aligned_weak"
             
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | PASSED: Score {normalized_score:.2f} >= {threshold} ({strength_level}) | Weights: {weight_desc}")
             return MTFValidationResult(
                 allow_trade=True,
-                lot_multiplier=0.3,  # Minimal position
-                tp_multiplier=0.6,   # Tight TP for quick exit
-                confidence_boost=0.0,
-                reasoning=f"Minimal timeframe alignment (score: {normalized_score:.2f}) - Weights: {weight_desc}",
+                lot_multiplier=lot_multiplier,
+                tp_multiplier=tp_multiplier,
+                confidence_boost=confidence_boost,
+                reasoning=f"{strength_level} timeframe alignment (score: {normalized_score:.2f}) - Weights: {weight_desc}",
                 timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
                 validation_score=normalized_score,
-                scenario_label="aligned_minimal"
+                scenario_label=scenario_label
             )
+        else:
+            # Trade blocked - determine reason
+            if tf_15m == 'neutral':
+                reason = f"15m neutral, score={normalized_score:.2f} < {threshold}"
+            elif tf_5m == 'neutral':
+                reason = f"5m neutral, score={normalized_score:.2f} < {threshold}"
+            elif tf_1m == 'neutral':
+                reason = f"1m neutral, score={normalized_score:.2f} < {threshold}"
+            else:
+                reason = f"Score {normalized_score:.2f} < {threshold}"
+            
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: {reason} | Weights: {weight_desc}")
+            return MTFValidationResult(
+                allow_trade=False,
+                lot_multiplier=0.0,
+                tp_multiplier=0.0,
+                confidence_boost=0.0,
+                reasoning=f"BLOCKED: {reason} | Weights: {weight_desc}",
+                timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
+                validation_score=normalized_score,
+                scenario_label="blocked_low_score"
+            )
+        
     
     def _create_fail_safe_result(self, reason: str) -> MTFValidationResult:
         """
