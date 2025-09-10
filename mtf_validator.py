@@ -219,7 +219,9 @@ class MultiTimeframeValidator:
         analysis = {'symbol': symbol}  # Include symbol for debug logging
         
         for tf_name, df in mtf_data.items():
-            if len(df) < 20:  # Need minimum data for indicators
+            # Enhanced data validation
+            if df is None or len(df) < 20:  # Need minimum data for indicators
+                self.logger.warning(f"[MTF_VALIDATOR] {tf_name.upper()} data insufficient: {len(df) if df is not None else 'None'} bars")
                 analysis[tf_name] = {
                     'direction': 'neutral', 
                     'strength': 0.0, 
@@ -228,6 +230,22 @@ class MultiTimeframeValidator:
                     'confidence': 0.0
                 }
                 continue
+            
+            # Validate DataFrame structure
+            required_columns = ['open', 'high', 'low', 'close']
+            if not all(col in df.columns for col in required_columns):
+                self.logger.warning(f"[MTF_VALIDATOR] {tf_name.upper()} missing required columns: {required_columns}")
+                analysis[tf_name] = {
+                    'direction': 'neutral', 
+                    'strength': 0.0, 
+                    'feature_series': None,
+                    'ml_signal': 0,
+                    'confidence': 0.0
+                }
+                continue
+            
+            # Log data info for debugging
+            self.logger.debug(f"[MTF_VALIDATOR] {tf_name.upper()} data: {len(df)} bars, columns: {list(df.columns)}")
                 
             # Calculate features using the EXACT SAME logic as the main algorithm
             feature_series = self._calculate_features_same_as_main(df)
@@ -267,25 +285,37 @@ class MultiTimeframeValidator:
         try:
             # Get the most recent bar data
             latest_bar = df.iloc[-1]
-            close = latest_bar['close']
-            high = latest_bar['high']
-            low = latest_bar['low']
+            close = float(latest_bar['close'])
+            high = float(latest_bar['high'])
+            low = float(latest_bar['low'])
             hlc3 = (high + low + close) / 3
             
-            # Calculate features using the EXACT SAME series_from function
-            return FeatureSeries(
-                f1=series_from(self.feature_params['f1']['string'], close, high, low, hlc3,
-                              self.feature_params['f1']['param_a'], self.feature_params['f1']['param_b']),
-                f2=series_from(self.feature_params['f2']['string'], close, high, low, hlc3,
-                              self.feature_params['f2']['param_a'], self.feature_params['f2']['param_b']),
-                f3=series_from(self.feature_params['f3']['string'], close, high, low, hlc3,
-                              self.feature_params['f3']['param_a'], self.feature_params['f3']['param_b']),
-                f4=series_from(self.feature_params['f4']['string'], close, high, low, hlc3,
-                              self.feature_params['f4']['param_a'], self.feature_params['f4']['param_b']),
-                f5=series_from(self.feature_params['f5']['string'], close, high, low, hlc3,
-                              self.feature_params['f5']['param_a'], self.feature_params['f5']['param_b'])
-            )
+            # Debug logging for price data
+            self.logger.debug(f"[FEATURE_CALC] Price data - Close: {close}, High: {high}, Low: {low}, HLC3: {hlc3}")
             
+            # Calculate features using the EXACT SAME series_from function
+            f1 = series_from(self.feature_params['f1']['string'], close, high, low, hlc3,
+                            self.feature_params['f1']['param_a'], self.feature_params['f1']['param_b'])
+            f2 = series_from(self.feature_params['f2']['string'], close, high, low, hlc3,
+                            self.feature_params['f2']['param_a'], self.feature_params['f2']['param_b'])
+            f3 = series_from(self.feature_params['f3']['string'], close, high, low, hlc3,
+                            self.feature_params['f3']['param_a'], self.feature_params['f3']['param_b'])
+            f4 = series_from(self.feature_params['f4']['string'], close, high, low, hlc3,
+                            self.feature_params['f4']['param_a'], self.feature_params['f4']['param_b'])
+            f5 = series_from(self.feature_params['f5']['string'], close, high, low, hlc3,
+                            self.feature_params['f5']['param_a'], self.feature_params['f5']['param_b'])
+            
+            # Debug logging for calculated features
+            self.logger.debug(f"[FEATURE_CALC] Features - F1: {f1}, F2: {f2}, F3: {f3}, F4: {f4}, F5: {f5}")
+            
+            return FeatureSeries(f1=f1, f2=f2, f3=f3, f4=f4, f5=f5)
+            
+        except TypeError as e:
+            if "object of type 'float' has no len()" in str(e):
+                self.logger.warning(f"[FEATURE_CALC] NEUTRAL due to float error: {e}")
+            else:
+                self.logger.warning(f"[FEATURE_CALC] TypeError in feature calculation: {e}")
+            return FeatureSeries(f1=50.0, f2=-50.0, f3=0.0, f4=20.0, f5=50.0)
         except Exception as e:
             self.logger.error(f"[MTF_VALIDATOR] Error calculating features: {e}")
             return FeatureSeries(f1=50.0, f2=-50.0, f3=0.0, f4=20.0, f5=50.0)
@@ -371,15 +401,17 @@ class MultiTimeframeValidator:
             'bullish', 'bearish', or 'neutral'
         """
         try:
-            # Get the latest indicator values
-            rsi_14 = feature_series.f1[-1] if len(feature_series.f1) > 0 else 50
-            wt_10 = feature_series.f2[-1] if len(feature_series.f2) > 0 else 0
-            cci_20 = feature_series.f3[-1] if len(feature_series.f3) > 0 else 0
-            adx_20 = feature_series.f4[-1] if len(feature_series.f4) > 0 else 0
-            rsi_9 = feature_series.f5[-1] if len(feature_series.f5) > 0 else 50
+            # Get the indicator values (FeatureSeries contains single float values, not arrays)
+            # Add explicit type checking and conversion to handle any data type issues
+            rsi_14 = float(feature_series.f1) if isinstance(feature_series.f1, (int, float)) else 50.0
+            wt_10 = float(feature_series.f2) if isinstance(feature_series.f2, (int, float)) else 0.0
+            cci_20 = float(feature_series.f3) if isinstance(feature_series.f3, (int, float)) else 0.0
+            adx_20 = float(feature_series.f4) if isinstance(feature_series.f4, (int, float)) else 0.0
+            rsi_9 = float(feature_series.f5) if isinstance(feature_series.f5, (int, float)) else 50.0
             
-            # Debug logging for indicator values
+            # Debug logging for indicator values and data types
             self.logger.debug(f"[TREND_DETECTION] RSI14={rsi_14:.2f}, WT10={wt_10:.2f}, CCI20={cci_20:.2f}, ADX20={adx_20:.2f}, RSI9={rsi_9:.2f}")
+            self.logger.debug(f"[TREND_DETECTION] Data types - f1: {type(feature_series.f1)}, f2: {type(feature_series.f2)}, f3: {type(feature_series.f3)}, f4: {type(feature_series.f4)}, f5: {type(feature_series.f5)}")
             
             # Calculate trend score based on multiple indicators
             bullish_score = 0
@@ -430,8 +462,14 @@ class MultiTimeframeValidator:
             self.logger.debug(f"[TREND_DETECTION] No clear trend: Bull={bullish_score}, Bear={bearish_score}, ADX={adx_20:.2f}")
             return 'neutral'
             
+        except TypeError as e:
+            if "object of type 'float' has no len()" in str(e):
+                self.logger.warning(f"[TREND_DETECTION] NEUTRAL due to float error: {e}")
+            else:
+                self.logger.warning(f"[TREND_DETECTION] TypeError in trend detection: {e}")
+            return 'neutral'
         except Exception as e:
-            self.logger.warning(f"Error in trend detection from indicators: {e}")
+            self.logger.warning(f"[TREND_DETECTION] Error in trend detection from indicators: {e}")
             return 'neutral'
     
     def _calculate_trend_strength_from_ml(self, confidence: float, feature_series: FeatureSeries) -> float:
