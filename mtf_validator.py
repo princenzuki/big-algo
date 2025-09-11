@@ -289,6 +289,7 @@ class MultiTimeframeValidator:
             self.logger.info(f"[MTF_DEBUG] {tf_name.upper()}: signal={ml_signal}, confidence={confidence:.3f}, direction={direction}")
             
         # Mapping sanity check to detect sign->label inconsistencies
+        # Note: We now use robust trend detection, so we check the actual direction vs what the ML signal would suggest
         _signal_to_label = {1: "bullish", 0: "neutral", -1: "bearish"}
         
         for tf_name, tf_data in analysis.items():
@@ -297,10 +298,14 @@ class MultiTimeframeValidator:
                 
             sig = tf_data.get("ml_signal", 0)
             logged_dir = tf_data.get("direction", "neutral")
-            expected = _signal_to_label.get(sig, "unknown")
+            expected_from_ml = _signal_to_label.get(sig, "unknown")
             
-            if expected != logged_dir:
-                self.logger.error(f"[MAPPING_BUG] {symbol} {tf_name.upper()}: signal={sig} expected_label={expected} but logged direction={logged_dir}")
+            # Log the comparison but don't treat it as an error since we're using robust detection
+            self.logger.debug(f"[MAPPING_CHECK] {symbol} {tf_name.upper()}: ML_signal={sig}->{expected_from_ml}, robust_direction={logged_dir}")
+            
+            # Only flag as error if there's a clear contradiction (e.g., ML says bullish but robust says bearish)
+            if (sig == 1 and logged_dir == "bearish") or (sig == -1 and logged_dir == "bullish"):
+                self.logger.warning(f"[MAPPING_CONFLICT] {symbol} {tf_name.upper()}: ML_signal={sig}->{expected_from_ml} conflicts with robust_direction={logged_dir}")
             
         return analysis
     
@@ -663,11 +668,12 @@ class MultiTimeframeValidator:
         strength_5m = tf_analysis.get('5m', {}).get('strength', 0.5)
         strength_15m = tf_analysis.get('15m', {}).get('strength', 0.5)
         
-        # Determine signal direction
+        # Use robust trend detection results for all timeframes
+        # The robust detection gives us the actual trend direction based on price action + indicators
         signal_direction = 'bullish' if signal > 0 else 'bearish'
         
         # Enhanced HTF vs LTF logging with data source info
-        ltf_signal = f"1m={signal_direction.upper()}"
+        ltf_signal = f"1m={tf_1m.upper()}"  # Use robust detection result for 1m too
         htf_5m = f"5m={tf_5m.upper()}" if tf_5m != 'neutral' else "5m=NEUTRAL"
         htf_15m = f"15m={tf_15m.upper()}" if tf_15m != 'neutral' else "15m=NEUTRAL"
         
@@ -678,13 +684,14 @@ class MultiTimeframeValidator:
         self.logger.info(f"[MTF_DEBUG] Symbol: {tf_analysis.get('symbol', 'UNKNOWN')} | 1m: {signal_1m}({confidence_1m:.3f}), 5m: {signal_5m}({confidence_5m:.3f}), 15m: {signal_15m}({confidence_15m:.3f}), Final Action: {signal_direction}")
         
         # EQUAL WEIGHTING (33-33-33) MAJORITY VOTING SYSTEM
+        # Use robust trend detection results for alignment checking
         
-        # Count timeframes by alignment
+        # Count timeframes by alignment with the main signal direction
         aligned_count = 0
         opposing_count = 0
         neutral_count = 0
         
-        # Check 1m alignment
+        # Check 1m alignment (use robust detection result)
         if tf_1m == signal_direction:
             aligned_count += 1
         elif tf_1m == 'neutral':
@@ -692,7 +699,7 @@ class MultiTimeframeValidator:
         else:
             opposing_count += 1
         
-        # Check 5m alignment
+        # Check 5m alignment (use robust detection result)
         if tf_5m == signal_direction:
             aligned_count += 1
         elif tf_5m == 'neutral':
@@ -700,7 +707,7 @@ class MultiTimeframeValidator:
         else:
             opposing_count += 1
         
-        # Check 15m alignment
+        # Check 15m alignment (use robust detection result)
         if tf_15m == signal_direction:
             aligned_count += 1
         elif tf_15m == 'neutral':
