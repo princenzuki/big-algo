@@ -19,7 +19,6 @@ import pandas as pd
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from collections import Counter
 
 # Import the exact same indicator functions from the main algorithm
 from core.signals import (
@@ -254,25 +253,8 @@ class MultiTimeframeValidator:
             # Calculate ML signal using Lorentzian distance classifier
             ml_signal, confidence = self._calculate_ml_signal_same_as_main(df, feature_series)
             
-            # Determine trend direction from ML signal and indicators (OLD METHOD)
-            old_direction = self._determine_trend_from_ml_signal(ml_signal, feature_series)
-            
-            # NEW METHOD: Robust trend detection using EMA + price action + indicators
-            new_direction, new_confidence = self.detect_trend_robust(df, lookback=5)
-            
-            # Log comparison between old and new methods
-            self.logger.info(f"[TREND_CHECK] {symbol} {tf_name.upper()}: old={old_direction}, new={new_direction}(conf={new_confidence:.3f}), last_closes={df['close'].iloc[-6:].to_list()}")
-            
-            if old_direction != new_direction:
-                self.logger.warning(f"[TREND_MISMATCH] {symbol} {tf_name.upper()}: old={old_direction} vs new={new_direction} - investigate.")
-                # Optional CSV write for debugging
-                try:
-                    df.tail(50).to_csv(f"/tmp/{symbol}_{tf_name}_debug.csv")
-                except:
-                    pass  # Ignore CSV write errors
-            
-            # Use the new robust trend detection
-            direction = new_direction
+            # Determine trend direction from ML signal and indicators (SAME AS PINE SCRIPT)
+            direction = self._determine_trend_from_ml_signal(ml_signal, feature_series)
             
             # Calculate trend strength from confidence and indicator alignment
             strength = self._calculate_trend_strength_from_ml(confidence, feature_series)
@@ -288,24 +270,8 @@ class MultiTimeframeValidator:
             # Debug logging for each timeframe
             self.logger.info(f"[MTF_DEBUG] {tf_name.upper()}: signal={ml_signal}, confidence={confidence:.3f}, direction={direction}")
             
-        # Mapping sanity check to detect sign->label inconsistencies
-        # Note: We now use robust trend detection, so we check the actual direction vs what the ML signal would suggest
-        _signal_to_label = {1: "bullish", 0: "neutral", -1: "bearish"}
-        
-        for tf_name, tf_data in analysis.items():
-            if tf_name == 'symbol':  # Skip the symbol entry
-                continue
-                
-            sig = tf_data.get("ml_signal", 0)
-            logged_dir = tf_data.get("direction", "neutral")
-            expected_from_ml = _signal_to_label.get(sig, "unknown")
-            
-            # Log the comparison but don't treat it as an error since we're using robust detection
-            self.logger.debug(f"[MAPPING_CHECK] {symbol} {tf_name.upper()}: ML_signal={sig}->{expected_from_ml}, robust_direction={logged_dir}")
-            
-            # Only flag as error if there's a clear contradiction (e.g., ML says bullish but robust says bearish)
-            if (sig == 1 and logged_dir == "bearish") or (sig == -1 and logged_dir == "bullish"):
-                self.logger.warning(f"[MAPPING_CONFLICT] {symbol} {tf_name.upper()}: ML_signal={sig}->{expected_from_ml} conflicts with robust_direction={logged_dir}")
+        # Simple logging for MTF analysis (same as Pine Script approach)
+        self.logger.info(f"[MTF_ANALYSIS] {symbol} | 1m: {analysis.get('1m', {}).get('direction', 'neutral')}, 5m: {analysis.get('5m', {}).get('direction', 'neutral')}, 15m: {analysis.get('15m', {}).get('direction', 'neutral')}")
             
         return analysis
     
@@ -509,108 +475,6 @@ class MultiTimeframeValidator:
             self.logger.warning(f"[TREND_DETECTION] Error in trend detection from indicators: {e}")
             return 'neutral'
     
-    def detect_trend_robust(self, df: pd.DataFrame, lookback: int = 5, ema_fast: int = 20, ema_slow: int = 50) -> Tuple[str, float]:
-        """
-        Robust trend detection using EMA + price action + indicators
-        
-        Args:
-            df: pandas DataFrame with columns ['open','high','low','close'] indexed oldest->newest
-            lookback: Number of candles to look back for price action analysis
-            ema_fast: Fast EMA period
-            ema_slow: Slow EMA period
-            
-        Returns:
-            Tuple of (trend_label, confidence_float) where trend_label in {"bullish","neutral","bearish"}
-        """
-        try:
-            if len(df) < max(ema_slow, lookback) + 1:
-                return "neutral", 0.0
-
-            # EMAs
-            ema_fast_series = df['close'].ewm(span=ema_fast, adjust=False).mean()
-            ema_slow_series = df['close'].ewm(span=ema_slow, adjust=False).mean()
-            ema_trend = "bullish" if ema_fast_series.iloc[-1] > ema_slow_series.iloc[-1] else "bearish"
-
-            # Price-action swing: check monotonic highs/lows over lookback
-            highs = df['high'].iloc[-(lookback+1):].to_numpy()
-            lows = df['low'].iloc[-(lookback+1):].to_numpy()
-
-            # require at least 2 sequential moves to count as HH/HL or LH/LL
-            hh = all(highs[i] > highs[i-1] for i in range(1, len(highs)))
-            hl = all(lows[i] > lows[i-1] for i in range(1, len(lows)))
-            ll = all(lows[i] < lows[i-1] for i in range(1, len(lows)))
-            lh = all(highs[i] < highs[i-1] for i in range(1, len(highs)))
-
-            if hh and hl:
-                pa_trend = "bullish"
-            elif lh and ll:
-                pa_trend = "bearish"
-            else:
-                pa_trend = "neutral"
-
-            # Simple indicator aggregation: check RSI/ADX/CCI sign over last candle
-            indicator_votes = []
-            
-            # Calculate indicators if not present
-            try:
-                rsi_series = calculate_rsi_pine(series_from(df['close']), 14, 1)
-                last_rsi = rsi_series.iloc[-1] if len(rsi_series) > 0 else 50.0
-                if last_rsi >= 60:
-                    indicator_votes.append("bullish")
-                elif last_rsi <= 40:
-                    indicator_votes.append("bearish")
-                else:
-                    indicator_votes.append("neutral")
-            except:
-                pass
-
-            try:
-                adx_series = calculate_adx_pine(series_from(df['high']), series_from(df['low']), series_from(df['close']), 20, 2)
-                last_adx = adx_series.iloc[-1] if len(adx_series) > 0 else 25.0
-                # For ADX, we need to check if it's strong enough to consider trend
-                if last_adx >= 25:
-                    # If ADX is strong, use EMA trend as the directional component
-                    if ema_trend == "bullish":
-                        indicator_votes.append("bullish")
-                    elif ema_trend == "bearish":
-                        indicator_votes.append("bearish")
-                    else:
-                        indicator_votes.append("neutral")
-                else:
-                    indicator_votes.append("neutral")
-            except:
-                pass
-
-            try:
-                cci_series = calculate_cci_pine(series_from(df['high']), series_from(df['low']), series_from(df['close']), 20, 1)
-                last_cci = cci_series.iloc[-1] if len(cci_series) > 0 else 0.0
-                if last_cci >= 100:
-                    indicator_votes.append("bullish")
-                elif last_cci <= -100:
-                    indicator_votes.append("bearish")
-                else:
-                    indicator_votes.append("neutral")
-            except:
-                pass
-
-            # Build votes: ema_trend, pa_trend, indicator_votes...
-            votes = [ema_trend, pa_trend] + indicator_votes
-            vote_counts = Counter(votes)
-            most_common, count = vote_counts.most_common(1)[0]
-
-            # Confidence scaled 0..1 by fraction of votes for the winner
-            confidence = count / max(1, len(votes))
-
-            # If the results are a tie or low confidence, report neutral
-            if confidence < 0.5:
-                return "neutral", confidence
-
-            return most_common, float(confidence)
-            
-        except Exception as e:
-            self.logger.warning(f"[ROBUST_TREND] Error in robust trend detection: {e}")
-            return "neutral", 0.0
-    
     def _calculate_trend_strength_from_ml(self, confidence: float, feature_series: FeatureSeries) -> float:
         """
         Calculate trend strength from ML confidence and feature series
@@ -668,30 +532,18 @@ class MultiTimeframeValidator:
         strength_5m = tf_analysis.get('5m', {}).get('strength', 0.5)
         strength_15m = tf_analysis.get('15m', {}).get('strength', 0.5)
         
-        # Use robust trend detection results for all timeframes
-        # The robust detection gives us the actual trend direction based on price action + indicators
+        # Simple Pine Script approach: just check if timeframes align
         signal_direction = 'bullish' if signal > 0 else 'bearish'
         
-        # Enhanced HTF vs LTF logging with data source info
-        ltf_signal = f"1m={tf_1m.upper()}"  # Use robust detection result for 1m too
-        htf_5m = f"5m={tf_5m.upper()}" if tf_5m != 'neutral' else "5m=NEUTRAL"
-        htf_15m = f"15m={tf_15m.upper()}" if tf_15m != 'neutral' else "15m=NEUTRAL"
+        # Simple logging (same as Pine Script)
+        self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | Signal: {signal_direction.upper()} | 1m: {tf_1m.upper()}, 5m: {tf_5m.upper()}, 15m: {tf_15m.upper()}")
         
-        # Check if we're using real MT5 data or resampled data
-        data_source = "REAL_MT5" if hasattr(self, '_using_real_mtf_data') and self._using_real_mtf_data else "RESAMPLED"
-        
-        self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | LTF: {ltf_signal} | HTF: {htf_5m}, {htf_15m} | Data: {data_source}")
-        self.logger.info(f"[MTF_DEBUG] Symbol: {tf_analysis.get('symbol', 'UNKNOWN')} | 1m: {signal_1m}({confidence_1m:.3f}), 5m: {signal_5m}({confidence_5m:.3f}), 15m: {signal_15m}({confidence_15m:.3f}), Final Action: {signal_direction}")
-        
-        # EQUAL WEIGHTING (33-33-33) MAJORITY VOTING SYSTEM
-        # Use robust trend detection results for alignment checking
-        
-        # Count timeframes by alignment with the main signal direction
+        # Simple alignment check (same as Pine Script logic)
         aligned_count = 0
         opposing_count = 0
         neutral_count = 0
         
-        # Check 1m alignment (use robust detection result)
+        # Check 1m alignment
         if tf_1m == signal_direction:
             aligned_count += 1
         elif tf_1m == 'neutral':
@@ -699,7 +551,7 @@ class MultiTimeframeValidator:
         else:
             opposing_count += 1
         
-        # Check 5m alignment (use robust detection result)
+        # Check 5m alignment
         if tf_5m == signal_direction:
             aligned_count += 1
         elif tf_5m == 'neutral':
@@ -707,7 +559,7 @@ class MultiTimeframeValidator:
         else:
             opposing_count += 1
         
-        # Check 15m alignment (use robust detection result)
+        # Check 15m alignment
         if tf_15m == signal_direction:
             aligned_count += 1
         elif tf_15m == 'neutral':
@@ -719,75 +571,45 @@ class MultiTimeframeValidator:
         active_count = aligned_count + opposing_count
         total_count = 3
         
-        # RULE 1: Perfect alignment (3/3) - Strong signal
-        if aligned_count == 3:
-            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | ALLOWED: 3/3 alignment → strong signal")
-            return MTFValidationResult(
-                allow_trade=True,
-                lot_multiplier=1.3,  # Maximum position for perfect alignment
-                tp_multiplier=1.2,   # Extended TP for strong trend
-                confidence_boost=0.3,  # 100% confidence (3/3 = 100%)
-                reasoning=f"Perfect alignment - all 3 timeframes {signal_direction} (100% confidence)",
-                timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                validation_score=1.0,  # 100% score
-                scenario_label="perfect_alignment"
-            )
-        
-        # RULE 2: Majority support (2/3) - Moderate signal
-        elif aligned_count == 2 and opposing_count == 0:
-            # Redistribute weights: 2 active timeframes = 50/50
-            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | ALLOWED: 2/3 alignment → majority support")
-            return MTFValidationResult(
-                allow_trade=True,
-                lot_multiplier=1.0,  # Standard position for majority support
-                tp_multiplier=1.0,   # Standard TP
-                confidence_boost=0.2,  # 66% confidence (2/3 = 66%)
-                reasoning=f"Majority support - 2/3 timeframes {signal_direction} (66% confidence)",
-                timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                validation_score=0.67,  # 66% score
-                scenario_label="majority_support"
-            )
-        
-        # RULE 3: Counter-trend detected - Block trade
-        elif opposing_count > 0:
-            self.logger.warning(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: counter-trend detected")
+        # Simple Pine Script rules: Allow if majority align, block if opposing
+        if opposing_count > 0:
+            # Block if any timeframe opposes
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: {opposing_count} timeframes oppose {signal_direction}")
             return MTFValidationResult(
                 allow_trade=False,
                 lot_multiplier=0.0,
                 tp_multiplier=0.0,
                 confidence_boost=0.0,
-                reasoning=f"BLOCKED: Counter-trend detected - {opposing_count} timeframes oppose {signal_direction} signal",
+                reasoning=f"BLOCKED: {opposing_count} timeframes oppose {signal_direction} signal",
                 timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
                 validation_score=0.0,
-                scenario_label="blocked_countertrend"
+                scenario_label="blocked_opposition"
             )
-        
-        # RULE 4: Only 1/3 aligned - Block trade
-        elif aligned_count == 1:
-            self.logger.warning(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: only 1/3 aligned")
+        elif aligned_count >= 2:
+            # Allow if 2+ timeframes align
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | ALLOWED: {aligned_count}/3 timeframes {signal_direction}")
             return MTFValidationResult(
-                allow_trade=False,
-                lot_multiplier=0.0,
-                tp_multiplier=0.0,
-                confidence_boost=0.0,
-                reasoning=f"BLOCKED: Insufficient support - only 1/3 timeframes {signal_direction} (33% confidence)",
+                allow_trade=True,
+                lot_multiplier=1.0,
+                tp_multiplier=1.0,
+                confidence_boost=0.1,
+                reasoning=f"ALLOWED: {aligned_count}/3 timeframes {signal_direction}",
                 timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                validation_score=0.33,  # 33% score
-                scenario_label="blocked_insufficient_support"
+                validation_score=0.7,
+                scenario_label="allowed_alignment"
             )
-        
-        # RULE 5: All neutral - Block trade
         else:
-            self.logger.warning(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: all timeframes neutral")
+            # Block if insufficient alignment
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: insufficient alignment ({aligned_count}/3 {signal_direction})")
             return MTFValidationResult(
                 allow_trade=False,
                 lot_multiplier=0.0,
                 tp_multiplier=0.0,
                 confidence_boost=0.0,
-                reasoning=f"BLOCKED: All timeframes neutral - no clear direction",
+                reasoning=f"BLOCKED: Only {aligned_count}/3 timeframes {signal_direction}",
                 timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                validation_score=0.0,
-                scenario_label="blocked_all_neutral"
+                validation_score=0.3,
+                scenario_label="blocked_insufficient"
             )
         
     
