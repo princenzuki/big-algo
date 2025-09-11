@@ -496,12 +496,13 @@ class MultiTimeframeValidator:
     
     def _determine_validation(self, signal: int, tf_analysis: Dict) -> MTFValidationResult:
         """
-        Determine trade validation based on strict timeframe alignment requirements
+        Determine trade validation based on equal weighting (33-33-33) and majority voting
         
         Rules:
-        1. Allow trade if 1m signal matches both 5m and 15m timeframes
-        2. Allow trade if at least 2 out of 3 timeframes are aligned in same direction
-        3. Block all counter-trend trades (no temporary HTF support)
+        1. All instruments use equal weighting: 1m=33%, 5m=33%, 15m=33%
+        2. Majority voting: 3/3 = strong, 2/3 = moderate, 1/3 = blocked
+        3. Redistribute weights among active timeframes when neutrals present
+        4. Block all counter-trend trades
         
         Args:
             signal: Trade signal (1 for long, -1 for short)
@@ -542,9 +543,9 @@ class MultiTimeframeValidator:
         self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | LTF: {ltf_signal} | HTF: {htf_5m}, {htf_15m} | Data: {data_source}")
         self.logger.info(f"[MTF_DEBUG] Symbol: {tf_analysis.get('symbol', 'UNKNOWN')} | 1m: {signal_1m}({confidence_1m:.3f}), 5m: {signal_5m}({confidence_5m:.3f}), 15m: {signal_15m}({confidence_15m:.3f}), Final Action: {signal_direction}")
         
-        # STRICT TIMEFRAME ALIGNMENT VALIDATION
+        # EQUAL WEIGHTING (33-33-33) MAJORITY VOTING SYSTEM
         
-        # Count aligned timeframes (excluding neutral)
+        # Count timeframes by alignment
         aligned_count = 0
         opposing_count = 0
         neutral_count = 0
@@ -573,60 +574,79 @@ class MultiTimeframeValidator:
         else:
             opposing_count += 1
         
-        # RULE 1: Perfect alignment - 1m matches both 5m and 15m
+        # Calculate active timeframes (non-neutral)
+        active_count = aligned_count + opposing_count
+        total_count = 3
+        
+        # RULE 1: Perfect alignment (3/3) - Strong signal
         if aligned_count == 3:
-            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | ALLOWED: Perfect alignment - all timeframes match {signal_direction.upper()}")
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | ALLOWED: 3/3 alignment → strong signal")
             return MTFValidationResult(
                 allow_trade=True,
                 lot_multiplier=1.3,  # Maximum position for perfect alignment
                 tp_multiplier=1.2,   # Extended TP for strong trend
-                confidence_boost=0.3,
-                reasoning=f"Perfect alignment - all timeframes {signal_direction}",
+                confidence_boost=0.3,  # 100% confidence (3/3 = 100%)
+                reasoning=f"Perfect alignment - all 3 timeframes {signal_direction} (100% confidence)",
                 timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                validation_score=1.0,
+                validation_score=1.0,  # 100% score
                 scenario_label="perfect_alignment"
             )
         
-        # RULE 2: At least 2 out of 3 timeframes aligned
-        elif aligned_count >= 2:
-            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | ALLOWED: {aligned_count}/3 timeframes aligned {signal_direction.upper()}")
+        # RULE 2: Majority support (2/3) - Moderate signal
+        elif aligned_count == 2 and opposing_count == 0:
+            # Redistribute weights: 2 active timeframes = 50/50
+            self.logger.info(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | ALLOWED: 2/3 alignment → majority support")
             return MTFValidationResult(
                 allow_trade=True,
-                lot_multiplier=1.0,  # Standard position for good alignment
+                lot_multiplier=1.0,  # Standard position for majority support
                 tp_multiplier=1.0,   # Standard TP
-                confidence_boost=0.1,
-                reasoning=f"Good alignment - {aligned_count}/3 timeframes {signal_direction}",
+                confidence_boost=0.2,  # 66% confidence (2/3 = 66%)
+                reasoning=f"Majority support - 2/3 timeframes {signal_direction} (66% confidence)",
                 timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
-                validation_score=0.7,
-                scenario_label="good_alignment"
+                validation_score=0.67,  # 66% score
+                scenario_label="majority_support"
             )
         
-        # RULE 3: Block counter-trend trades (HTF opposition)
+        # RULE 3: Counter-trend detected - Block trade
         elif opposing_count > 0:
-            self.logger.warning(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: Higher timeframe disagreement - {opposing_count} timeframes oppose {signal_direction.upper()} signal | LTF={ltf_signal} vs HTF={htf_5m},{htf_15m}")
+            self.logger.warning(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: counter-trend detected")
             return MTFValidationResult(
                 allow_trade=False,
                 lot_multiplier=0.0,
                 tp_multiplier=0.0,
                 confidence_boost=0.0,
-                reasoning=f"BLOCKED: Higher timeframe disagreement - {opposing_count} timeframes oppose {signal_direction} signal",
+                reasoning=f"BLOCKED: Counter-trend detected - {opposing_count} timeframes oppose {signal_direction} signal",
                 timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
                 validation_score=0.0,
-                scenario_label="blocked_htf_disagreement"
+                scenario_label="blocked_countertrend"
             )
         
-        # RULE 4: Insufficient alignment (too many neutrals)
-        else:
-            self.logger.warning(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: Insufficient alignment - only {aligned_count}/3 timeframes aligned, {neutral_count} neutral | LTF={ltf_signal} vs HTF={htf_5m},{htf_15m}")
+        # RULE 4: Only 1/3 aligned - Block trade
+        elif aligned_count == 1:
+            self.logger.warning(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: only 1/3 aligned")
             return MTFValidationResult(
                 allow_trade=False,
                 lot_multiplier=0.0,
                 tp_multiplier=0.0,
                 confidence_boost=0.0,
-                reasoning=f"BLOCKED: Insufficient alignment - only {aligned_count}/3 timeframes aligned, {neutral_count} neutral",
+                reasoning=f"BLOCKED: Insufficient support - only 1/3 timeframes {signal_direction} (33% confidence)",
+                timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
+                validation_score=0.33,  # 33% score
+                scenario_label="blocked_insufficient_support"
+            )
+        
+        # RULE 5: All neutral - Block trade
+        else:
+            self.logger.warning(f"[MTF_VALIDATOR] {tf_analysis.get('symbol', 'UNKNOWN')} | BLOCKED: all timeframes neutral")
+            return MTFValidationResult(
+                allow_trade=False,
+                lot_multiplier=0.0,
+                tp_multiplier=0.0,
+                confidence_boost=0.0,
+                reasoning=f"BLOCKED: All timeframes neutral - no clear direction",
                 timeframe_alignment={'1m': tf_1m, '5m': tf_5m, '15m': tf_15m},
                 validation_score=0.0,
-                scenario_label="blocked_insufficient_alignment"
+                scenario_label="blocked_all_neutral"
             )
         
     
