@@ -19,6 +19,7 @@ import pandas as pd
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from collections import Counter
 
 # Import the exact same indicator functions from the main algorithm
 from core.signals import (
@@ -253,8 +254,25 @@ class MultiTimeframeValidator:
             # Calculate ML signal using Lorentzian distance classifier
             ml_signal, confidence = self._calculate_ml_signal_same_as_main(df, feature_series)
             
-            # Determine trend direction from ML signal and indicators
-            direction = self._determine_trend_from_ml_signal(ml_signal, feature_series)
+            # Determine trend direction from ML signal and indicators (OLD METHOD)
+            old_direction = self._determine_trend_from_ml_signal(ml_signal, feature_series)
+            
+            # NEW METHOD: Robust trend detection using EMA + price action + indicators
+            new_direction, new_confidence = self.detect_trend_robust(df, lookback=5)
+            
+            # Log comparison between old and new methods
+            self.logger.info(f"[TREND_CHECK] {symbol} {tf_name.upper()}: old={old_direction}, new={new_direction}(conf={new_confidence:.3f}), last_closes={df['close'].iloc[-6:].to_list()}")
+            
+            if old_direction != new_direction:
+                self.logger.warning(f"[TREND_MISMATCH] {symbol} {tf_name.upper()}: old={old_direction} vs new={new_direction} - investigate.")
+                # Optional CSV write for debugging
+                try:
+                    df.tail(50).to_csv(f"/tmp/{symbol}_{tf_name}_debug.csv")
+                except:
+                    pass  # Ignore CSV write errors
+            
+            # Use the new robust trend detection
+            direction = new_direction
             
             # Calculate trend strength from confidence and indicator alignment
             strength = self._calculate_trend_strength_from_ml(confidence, feature_series)
@@ -269,6 +287,20 @@ class MultiTimeframeValidator:
             
             # Debug logging for each timeframe
             self.logger.info(f"[MTF_DEBUG] {tf_name.upper()}: signal={ml_signal}, confidence={confidence:.3f}, direction={direction}")
+            
+        # Mapping sanity check to detect sign->label inconsistencies
+        _signal_to_label = {1: "bullish", 0: "neutral", -1: "bearish"}
+        
+        for tf_name, tf_data in analysis.items():
+            if tf_name == 'symbol':  # Skip the symbol entry
+                continue
+                
+            sig = tf_data.get("ml_signal", 0)
+            logged_dir = tf_data.get("direction", "neutral")
+            expected = _signal_to_label.get(sig, "unknown")
+            
+            if expected != logged_dir:
+                self.logger.error(f"[MAPPING_BUG] {symbol} {tf_name.upper()}: signal={sig} expected_label={expected} but logged direction={logged_dir}")
             
         return analysis
     
@@ -471,6 +503,108 @@ class MultiTimeframeValidator:
         except Exception as e:
             self.logger.warning(f"[TREND_DETECTION] Error in trend detection from indicators: {e}")
             return 'neutral'
+    
+    def detect_trend_robust(self, df: pd.DataFrame, lookback: int = 5, ema_fast: int = 20, ema_slow: int = 50) -> Tuple[str, float]:
+        """
+        Robust trend detection using EMA + price action + indicators
+        
+        Args:
+            df: pandas DataFrame with columns ['open','high','low','close'] indexed oldest->newest
+            lookback: Number of candles to look back for price action analysis
+            ema_fast: Fast EMA period
+            ema_slow: Slow EMA period
+            
+        Returns:
+            Tuple of (trend_label, confidence_float) where trend_label in {"bullish","neutral","bearish"}
+        """
+        try:
+            if len(df) < max(ema_slow, lookback) + 1:
+                return "neutral", 0.0
+
+            # EMAs
+            ema_fast_series = df['close'].ewm(span=ema_fast, adjust=False).mean()
+            ema_slow_series = df['close'].ewm(span=ema_slow, adjust=False).mean()
+            ema_trend = "bullish" if ema_fast_series.iloc[-1] > ema_slow_series.iloc[-1] else "bearish"
+
+            # Price-action swing: check monotonic highs/lows over lookback
+            highs = df['high'].iloc[-(lookback+1):].to_numpy()
+            lows = df['low'].iloc[-(lookback+1):].to_numpy()
+
+            # require at least 2 sequential moves to count as HH/HL or LH/LL
+            hh = all(highs[i] > highs[i-1] for i in range(1, len(highs)))
+            hl = all(lows[i] > lows[i-1] for i in range(1, len(lows)))
+            ll = all(lows[i] < lows[i-1] for i in range(1, len(lows)))
+            lh = all(highs[i] < highs[i-1] for i in range(1, len(highs)))
+
+            if hh and hl:
+                pa_trend = "bullish"
+            elif lh and ll:
+                pa_trend = "bearish"
+            else:
+                pa_trend = "neutral"
+
+            # Simple indicator aggregation: check RSI/ADX/CCI sign over last candle
+            indicator_votes = []
+            
+            # Calculate indicators if not present
+            try:
+                rsi_series = calculate_rsi_pine(series_from(df['close']), 14, 1)
+                last_rsi = rsi_series.iloc[-1] if len(rsi_series) > 0 else 50.0
+                if last_rsi >= 60:
+                    indicator_votes.append("bullish")
+                elif last_rsi <= 40:
+                    indicator_votes.append("bearish")
+                else:
+                    indicator_votes.append("neutral")
+            except:
+                pass
+
+            try:
+                adx_series = calculate_adx_pine(series_from(df['high']), series_from(df['low']), series_from(df['close']), 20, 2)
+                last_adx = adx_series.iloc[-1] if len(adx_series) > 0 else 25.0
+                # For ADX, we need to check if it's strong enough to consider trend
+                if last_adx >= 25:
+                    # If ADX is strong, use EMA trend as the directional component
+                    if ema_trend == "bullish":
+                        indicator_votes.append("bullish")
+                    elif ema_trend == "bearish":
+                        indicator_votes.append("bearish")
+                    else:
+                        indicator_votes.append("neutral")
+                else:
+                    indicator_votes.append("neutral")
+            except:
+                pass
+
+            try:
+                cci_series = calculate_cci_pine(series_from(df['high']), series_from(df['low']), series_from(df['close']), 20, 1)
+                last_cci = cci_series.iloc[-1] if len(cci_series) > 0 else 0.0
+                if last_cci >= 100:
+                    indicator_votes.append("bullish")
+                elif last_cci <= -100:
+                    indicator_votes.append("bearish")
+                else:
+                    indicator_votes.append("neutral")
+            except:
+                pass
+
+            # Build votes: ema_trend, pa_trend, indicator_votes...
+            votes = [ema_trend, pa_trend] + indicator_votes
+            vote_counts = Counter(votes)
+            most_common, count = vote_counts.most_common(1)[0]
+
+            # Confidence scaled 0..1 by fraction of votes for the winner
+            confidence = count / max(1, len(votes))
+
+            # If the results are a tie or low confidence, report neutral
+            if confidence < 0.5:
+                return "neutral", confidence
+
+            return most_common, float(confidence)
+            
+        except Exception as e:
+            self.logger.warning(f"[ROBUST_TREND] Error in robust trend detection: {e}")
+            return "neutral", 0.0
     
     def _calculate_trend_strength_from_ml(self, confidence: float, feature_series: FeatureSeries) -> float:
         """
